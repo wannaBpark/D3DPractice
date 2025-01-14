@@ -9,6 +9,12 @@
 #include <d3d11.h>
 #include <d3dcompiler.h>
 
+// ImGui 관련 헤더
+#include "ImGui/imgui.h"
+#include "ImGui/imgui_internal.h"
+#include "ImGui/imgui_impl_dx11.h"
+#include "ImGui/imgui_impl_win32.h"
+
 // 1. Define the triangle vertices 
 struct FVertexSimple {
 	float x, y, z;		// Position (동차좌표계로 변환하면 4차원)
@@ -26,9 +32,9 @@ class URenderer
 {
 public:
 	// Direct3D 11 장치(Device)와 장치 컨텍스트(Device Context) 및 스왑체인(Swap chain)을 관리하기 위한 포인터들
-	ID3D11Device* Device = nullptr;	// GPU와 통신하기 위한 D3D 장치
-	ID3D11DeviceContext* DeviceContext = nullptr; // GPU 명령 실행을 담당하는 컨텍스트 
-	IDXGISwapChain* SwapChain = nullptr;		  // 프레임 버퍼를 교체하는 데 사용되는 스왑 체인
+	ID3D11Device* Device = nullptr;	// GPU와 통신하기 위한 D3D 장치 (기능 지원 점검과 자원 할당)
+	ID3D11DeviceContext* DeviceContext = nullptr; // GPU 명령 실행을 담당하는 컨텍스트 (GPU가 수행할 렌더링 명령.. 설정과 자원을 파이프라인에 묶기도 함)
+	IDXGISwapChain* SwapChain = nullptr;		  // 프레임 버퍼를 교체하는 데 사용되는 스왑 체인 (I:Interface)
 
 	// 렌더링에 필요한 리소스 및 상태를 관리하기 위한 변수들
 	ID3D11Texture2D* FrameBuffer = nullptr; // 화면 출력용 텍스처
@@ -71,7 +77,7 @@ public:
 		DXGI_SWAP_CHAIN_DESC swapchaindesc = {};
 		swapchaindesc.BufferDesc.Width = 0; // 창 크기에 맞게 자동으로 설정
 		swapchaindesc.BufferDesc.Height = 0; // 창 크기에 맞게 자동으로 설정
-		swapchaindesc.BufferDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; // 색상 포맷 
+		swapchaindesc.BufferDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; // 색상 포맷 | 텍스처에는 DXGI 열겨형 정의된 자료형식만 담을 수 있음
 		swapchaindesc.SampleDesc.Count = 1; // 멀티 샘플링 비활성화
 		swapchaindesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; // 렌더 타겟으로 사용
 		swapchaindesc.BufferCount = 2; // 더블 버퍼링
@@ -115,18 +121,19 @@ public:
 		}
 	}
 
-	// 프레임 버퍼를 생성하는 함수
+	// 프레임 버퍼를 생성하는 함수 (텍
 	void CreateFrameBuffer()
 	{
-		// 스왑 체인으로부터 백 버퍼 텍스처 가져오기
+		// 스왑 체인으로부터 백 버퍼 텍스처 가져오기 (지정된 인덱스 0)
+		// 이 때 FrameBuffer는 렌더링된 이미지를 저장하는 데에 사용
 		SwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&FrameBuffer);
 
 		// 렌더 타겟 뷰 생성
 		D3D11_RENDER_TARGET_VIEW_DESC framebufferRTVdesc = {};
 		framebufferRTVdesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; // 색상 포맷
-		framebufferRTVdesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D; // 2D 텍스처
+		framebufferRTVdesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D; // 2D 텍스처를 렌더 타겟으로 설정
 
-		Device->CreateRenderTargetView(FrameBuffer, &framebufferRTVdesc, &FrameBufferRTV); // FrameBuffer가 0일수있다는 에러?
+		Device->CreateRenderTargetView(FrameBuffer, &framebufferRTVdesc, &FrameBufferRTV); // FrameBuffer를 RTV로 설정 | FrameBuffer가 0일수있다 에러:GetBuffer호출 실패했거나, FB가 nullptr일때
 	}
 
 	// 프레임 버퍼를 해제하는 함수
@@ -146,10 +153,10 @@ public:
 	void CreateRasterizerState()
 	{
 		D3D11_RASTERIZER_DESC rasterizerdesc = {};
-		rasterizerdesc.FillMode = D3D11_FILL_SOLID; // 채우기 모드
-		rasterizerdesc.CullMode = D3D11_CULL_BACK;	// 백 페이스 컬링
+		rasterizerdesc.FillMode = D3D11_FILL_SOLID; // 단색 채우기 모드
+		rasterizerdesc.CullMode = D3D11_CULL_BACK;	// 백 페이스 컬링:뒤쪽 면을 그리지 않도록
 
-		Device->CreateRasterizerState(&rasterizerdesc, &RasterizerState);
+		Device->CreateRasterizerState(&rasterizerdesc, &RasterizerState); // 생성된 래스터라이저 상태를 Device*에 적용
 	}
 
 	// 래스터라이저 상태를 해제하는 함수
@@ -176,7 +183,7 @@ public:
 	// 스왑 체인의 백 버퍼와 프론트 버퍼를 교체하여 화면에 출력
 	void SwapBuffer()
 	{
-		SwapChain->Present(1, 0); // 1 : VSync 활성화
+		SwapChain->Present(1, 0); // 1 : VSync 활성화 | 후면과 전면 버퍼를 교환하여 화면 표시하는 것(=Present 제시)
 	}
 
 	void CreateShader()
@@ -231,7 +238,7 @@ public:
 		DeviceContext->RSSetViewports(1, &ViewportInfo);
 		DeviceContext->RSSetState(RasterizerState);
 
-		DeviceContext->OMSetRenderTargets(1, &FrameBufferRTV, nullptr);
+		DeviceContext->OMSetRenderTargets(1, &FrameBufferRTV, nullptr); // 백 버퍼에 해당하는 RTV를 생성하고 묶어야함 (출력병합기)
 		DeviceContext->OMSetBlendState(nullptr, nullptr, 0xffffffff);
 
 	}
@@ -252,9 +259,15 @@ public:
 	}
 };
 
+extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
 // 각종 메시지를 처리할 함수
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
+	if (ImGui_ImplWin32_WndProcHandler(hWnd, message, wParam, lParam)) {
+		return true;
+	}
+
 	switch (message) {
 	case WM_DESTROY:
 		// Signal that the app should quit
@@ -289,6 +302,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	renderer.Create(hWnd);   // D3D11 생성하는 함수를 호출
 	renderer.CreateShader(); // 렌더러 생성 직후 셰이더 생성
+
+	// ImGui 생성 및 초기화 함수 호출
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO();
+	ImGui_ImplWin32_Init((void*)hWnd);
+	ImGui_ImplDX11_Init(renderer.Device, renderer.DeviceContext);
 
 	// 렌더러,셰이더 생성 후 VertexBuffer 생성
 	FVertexSimple* vertices = triangle_vertices;
@@ -329,22 +349,44 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		}
 
 		////////////////////////////////////////////
-		// 매번 실행되는 코드를 여기에 추가합니다.
+		// 매번 실행되는 코드를 여기에 추가
 		
-		// 준비 작업
+		// [1] 렌더러 준비 작업
 		renderer.Prepare();
 		renderer.PrepareShader();
+		renderer.RenderPrimitive(vertexBuffer, numVertices); // [1] 생성한 버텍스 버퍼를 넘겨 실질적인 렌더링 요청
 
-		// 생성한 버텍스 버퍼를 넘겨 실질적인 렌더링 요청
-		renderer.RenderPrimitive(vertexBuffer, numVertices);
+		// [2] ImGui 렌더링 준비, 컨트롤 설정, 렌더링 요청
+		ImGui_ImplDX11_NewFrame();
+		ImGui_ImplWin32_NewFrame();
+		ImGui::NewFrame();
 
-		// 현재 화면에 보여지는 버퍼와 그리기 작업을 위한 버퍼를 서로 교환
+		// [2] 이후 ImGui UI 컨트롤 추가는 ImGui::NewFrame()과 Render() 사이인 여기에 위치합니다
+		ImGui::Begin("Jungle Property Window");
+		ImGui::Text("Hello Jungle world!");
+
+		if (ImGui::Button("Quit this App")) {
+			// 현재 윈도우에 Quit 메시지를 메시지 큐로 보냄
+			PostMessage(hWnd, WM_QUIT, 0, 0);
+		}
+		ImGui::End();
+
+		ImGui::Render();
+		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData()); // 렌더링 요청
+
+		// [3] 현재 화면에 보여지는 버퍼와 그리기 작업을 위한 버퍼를 서로 교환
 		renderer.SwapBuffer();
 
 		////////////////////////////////////////////
 
 	}
 	
+	// ImGui 소멸
+	ImGui_ImplDX11_Shutdown();
+	ImGui_ImplWin32_Shutdown();
+	ImGui::DestroyContext();
+
+	// COM 오브젝트는 Release로만 각각 소멸 가능 (delete X)
 	vertexBuffer->Release();	// 버텍스 버퍼 소멸은 렌더러 소멸 전에 처리
 	renderer.ReleaseShader();   // 렌더러 소멸 직전 셰이더를 소멸시키는 함수 호출
 	renderer.Release();			// D3D11 소멸시키는 함수를 호출합니다.
