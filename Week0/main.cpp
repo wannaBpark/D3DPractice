@@ -21,6 +21,8 @@ struct FVertexSimple {
 	float r, g, b, a;	// Color 
 };
 
+#include "Sphere.h"
+
 // 삼각형을 하드 코딩 (vertex마다 위치, 색상을 가지는 구조) / 왼손좌표계(시계방향, 왼손이 카메라를 향하도록)이므로 vertex순서도 위오른왼
 FVertexSimple triangle_vertices[] = {
 	{0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f}, // Top vertex(red)
@@ -365,9 +367,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	//UINT ByteWidth = sizeof(triangle_vertices); // 총 바이트 수
 	//UINT numVertices = sizeof(triangle_vertices) / sizeof(FVertexSimple);
 
-	FVertexSimple* vertices = cube_vertices;
-	UINT ByteWidth = sizeof(cube_vertices); // 총 바이트 수
-	UINT numVertices = sizeof(cube_vertices) / sizeof(FVertexSimple);
+	FVertexSimple* vertices = sphere_vertices;
+	UINT ByteWidth = sizeof(sphere_vertices); // 총 바이트 수
+	UINT numVertices = sizeof(sphere_vertices) / sizeof(FVertexSimple);
 
 	// 생성
 	D3D11_BUFFER_DESC vertexbufferdesc = {};
