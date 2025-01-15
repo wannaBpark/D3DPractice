@@ -21,6 +21,12 @@ struct FVertexSimple {
 	float r, g, b, a;	// Color 
 };
 
+// structure for a 3D vector
+struct FVector3 {
+	float x, y, z;
+	FVector3(float _x = 0, float _y = 0, float _z = 0) : x(_x), y(_y), z(_z) {}
+};
+
 #include "Sphere.h"
 
 // 삼각형을 하드 코딩 (vertex마다 위치, 색상을 가지는 구조) / 왼손좌표계(시계방향, 왼손이 카메라를 향하도록)이므로 vertex순서도 위오른왼
@@ -93,7 +99,7 @@ public:
 	ID3D11Texture2D* FrameBuffer = nullptr; // 화면 출력용 텍스처
 	ID3D11RenderTargetView* FrameBufferRTV = nullptr; // 텍스처를 렌더 타겟으로 사용하는 뷰
 	ID3D11RasterizerState* RasterizerState = nullptr;  // 래스터라이저 상태(컬링, 채우기 모드 등 정의)
-	ID3D11Buffer* ConstantBuffer = nullptr; // 셰이더에 데이터를 전달하기 위한 상수 버퍼
+	
 
 	FLOAT ClearColor[4] = { 0.025f, 0.025f, 0.025f, 1.0f }; // 화면을 초기화(clear)할 때 사용할 색상 (RGBA)
 	D3D11_VIEWPORT ViewportInfo; //렌더링 영역을 정의하는 뷰포트 정보
@@ -103,6 +109,13 @@ public:
 	ID3D11PixelShader* SimplePixelShader;
 	ID3D11InputLayout* SimpleInputLayout;
 	unsigned int Stride;
+
+	// 상수 버퍼
+	struct FConstants {
+		FVector3 Offset;
+		float Pad;
+	};
+	ID3D11Buffer* ConstantBuffer = nullptr; // 셰이더에 데이터를 전달하기 위한 상수 버퍼
 
 public:
 	// 렌더러 초기화 함수
@@ -301,6 +314,11 @@ public:
 		DeviceContext->VSSetShader(SimpleVertexShader, nullptr, 0);
 		DeviceContext->PSSetShader(SimplePixelShader, nullptr, 0);
 		DeviceContext->IASetInputLayout(SimpleInputLayout);
+
+		// 버텍스 셰이더의 상수 버퍼 설정
+		if (ConstantBuffer) {
+			DeviceContext->VSSetConstantBuffers(0, 1, &ConstantBuffer);
+		}
 	}
 
 	void RenderPrimitive(ID3D11Buffer* pBuffer, UINT numVertices)
@@ -330,6 +348,40 @@ public:
 	void ReleaseVertexBuffer(ID3D11Buffer* vertexBuffer)
 	{
 		vertexBuffer->Release();
+	}
+
+	// 보통 변하지 않는 값(CPU에서 GPU로 보내기 위해)을 저장할 상수버퍼 생성
+	void CreateConstantBuffer()
+	{
+		D3D11_BUFFER_DESC constantbufferdesc = {};
+		constantbufferdesc.ByteWidth = sizeof(FConstants) + 0xf & 0xfffffff0; // ensure constant buffer	size is multiple of 16 bytes (최소 16바이트 이상 & 0xfffffff0 = 무조건 16의배수)
+		constantbufferdesc.Usage = D3D11_USAGE_DYNAMIC; // will be updated from CPU frame;
+		constantbufferdesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		constantbufferdesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER; 
+
+		Device->CreateBuffer(&constantbufferdesc, nullptr, &ConstantBuffer);
+	}
+
+	void ReleaseConstantBuffer()
+	{
+		if (ConstantBuffer) {
+			ConstantBuffer->Release();
+			ConstantBuffer = nullptr;
+		}
+	}
+
+	// GPU와 묶인 ConstantBuffer를 임시로 MSR로 가져와 수정하고, 다시 떼어내어 GPU에 도로 묶음
+	void UpdateConstant(FVector3 Offset)
+	{
+		if (ConstantBuffer) {
+			D3D11_MAPPED_SUBRESOURCE constantbufferMSR;			// CPU접근 가능하도록 상수버퍼를 임시로 가져올 버퍼
+
+			DeviceContext->Map(ConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &constantbufferMSR); // 매프레임 상수 버퍼 업데이트 (맵핑시 CPU가 데이터 수정 가능)
+			FConstants* constants = (FConstants*)constantbufferMSR.pData; { // 맵핑된 버퍼의 실제 메모리 주소 가져옴 | 멤버 변수 바꿀 땐 중괄호 쓰는듯
+				constants->Offset = Offset;
+			}
+			DeviceContext->Unmap(ConstantBuffer, 0);		// 리소스를 GPU와의 정상적인 상태로 되돌림
+		}
 	}
 };
 
@@ -376,6 +428,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	renderer.Create(hWnd);   // D3D11 생성하는 함수를 호출
 	renderer.CreateShader(); // 렌더러 생성 직후 셰이더 생성
+	renderer.CreateConstantBuffer(); // 상수 버퍼 생성
 
 	// ImGui 생성 및 초기화 함수 호출
 	IMGUI_CHECKVERSION();
@@ -385,7 +438,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	ImGui_ImplDX11_Init(renderer.Device, renderer.DeviceContext);
 
 	// 렌더러,셰이더 생성 후 VertexBuffer 생성	
-
+	// [질문1] (numvertices는 다른 구조체를 가질 때 코드가 변경되는데, 이를 매크로로 자동으로 추가할 방법 + 소유권 누구한테 줘야 적당할지
 	UINT numVerticesTriangle = sizeof(triangle_vertices) / sizeof(FVertexSimple);
 	UINT numVerticesCube = sizeof(cube_vertices) / sizeof(FVertexSimple);
 	UINT numVerticesSphere = sizeof(sphere_vertices) / sizeof(FVertexSimple);
@@ -410,10 +463,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	};
 
 	ETypePrimitive typePrimitive = EPT_Triangle;
+	FVector3 offset(0.0f);
 
 	bool bIsExit = false;
-
-	// 각종 생성하는 코드들을 여기에 추가합니다.
 
 	// Main Loop (Quit Message가 들어오기 전까지 아래 Loop를 무한히 실행하게 됨)
 	while (bIsExit == false) {
@@ -430,6 +482,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 			if (msg.message == WM_QUIT) {
 				bIsExit = true;
 				break;
+			} else if (msg.message == WM_KEYDOWN) { // 조건이 많다면 점프 테이블 생성하여 성능 최적화 하는 switch-case가 유리
+				if (msg.wParam == VK_LEFT) {
+					offset.x -= 0.1f;
+				} else if (msg.wParam == VK_RIGHT) {
+					offset.x += 0.1f;
+				} else if (msg.wParam == VK_UP) {
+					offset.y += 0.1f;
+				} else if (msg.wParam == VK_DOWN) {
+					offset.y -= 0.1f;
+				}
 			}
 		}
 
@@ -439,8 +501,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		// [1] 렌더러 준비 작업
 		renderer.Prepare();
 		renderer.PrepareShader();
-		
-		switch (typePrimitive) {		// 생성한 버텍스 버퍼를 넘겨 실질적인 렌더링 요청
+
+		renderer.UpdateConstant(offset);	// offset을 상수 버퍼에 넣어 업데이트
+
+		switch (typePrimitive) {			// 생성한 버텍스 버퍼를 넘겨 실질적인 렌더링 요청
 		case EPT_Triangle:
 			renderer.RenderPrimitive(vertexBufferTriangle, numVerticesTriangle); 
 			break;
@@ -496,8 +560,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	renderer.ReleaseVertexBuffer(vertexBufferCube);
 	renderer.ReleaseVertexBuffer(vertexBufferSphere);
 
+	renderer.ReleaseConstantBuffer();
 	renderer.ReleaseShader();   // 렌더러 소멸 직전 셰이더를 소멸시키는 함수 호출
 	renderer.Release();			// D3D11 소멸시키는 함수를 호출합니다.
 
-	return 0;  
+	return 1;  
 }
