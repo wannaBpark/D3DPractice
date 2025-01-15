@@ -30,8 +30,9 @@ FVertexSimple triangle_vertices[] = {
 	{-1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f}, // Bottom-left vertex(blue)
 };
 
+// With No Z-depth test .. 그려진 순서가 뒤일수록 보인다
 FVertexSimple cube_vertices[] = {
-	// Front face (Z+)
+	// Front face (Z+) (화면 바로 앞의 사각형, z가 양수임에 유의)
 	{-0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f}, // Bottom-left (red)
 	{-0.5f,  0.5f, 0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Top-left (yellow)
 	{ 0.5f, -0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f}, // Bottom-right (green)
@@ -39,13 +40,13 @@ FVertexSimple cube_vertices[] = {
 	{ 0.5f,	 0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Top-right (blue)
 	{ 0.5f, -0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f}, // Bottom-right (green)
 
-	// Back face (Z-)
-	{-0.5f, -0.5f, -0.5f, 0.0f, 1.0f, 1.0f, 1.0f}, // Bottom-left (cyan)
-	{ 0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 1.0f, 1.0f}, // Bottom-right (magenta)
-	{-0.5f,  0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Top-left (blue)
-	{-0.5f,  0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Top-left (blue)
-	{ 0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 1.0f, 1.0f}, // Bottom-right (magenta)
-	{ 0.5f,  0.5f, -0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Top-right (yellow)
+	// Back face (Z-) (왼손좌표계로 말았을 때, 내 등뒤를 향함 | 만약 내 정면을 향하게 왼손을 말도록 1) 순서 2) Z 0.5로 변경하면 해당 면이 그려진다)
+	{-0.5f, -0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f}, // Bottom-left (cyan)
+	{ 0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 1.0f, 1.0f}, // Bottom-right (magenta)
+	{-0.5f,  0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Top-left (blue)
+	{-0.5f,  0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Top-left (blue)
+	{ 0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 1.0f, 1.0f}, // Bottom-right (magenta)
+	{ 0.5f,  0.5f, 0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Top-right (yellow)
 
 	// Left face (X-)
 	{-0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 1.0f, 1.0f }, // Bottom-left (purple)
@@ -367,9 +368,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	//UINT ByteWidth = sizeof(triangle_vertices); // 총 바이트 수
 	//UINT numVertices = sizeof(triangle_vertices) / sizeof(FVertexSimple);
 
-	FVertexSimple* vertices = sphere_vertices;
-	UINT ByteWidth = sizeof(sphere_vertices); // 총 바이트 수
-	UINT numVertices = sizeof(sphere_vertices) / sizeof(FVertexSimple);
+	FVertexSimple* vertices = cube_vertices;
+	UINT ByteWidth = sizeof(cube_vertices); // 총 바이트 수
+	UINT numVertices = sizeof(cube_vertices) / sizeof(FVertexSimple);
 
 	// Vertex Buffer로 넘기기 전에 Scale Down함
 	float scaleMod = 0.1f;
