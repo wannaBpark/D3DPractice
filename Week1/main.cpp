@@ -15,6 +15,8 @@
 #include "ImGui/imgui_impl_dx11.h"
 #include "ImGui/imgui_impl_win32.h"
 
+#include <algorithm> // clamp
+
 // 1. Define the triangle vertices 
 struct FVertexSimple {
 	float x, y, z;		// Position (동차좌표계로 변환하면 4차원)
@@ -462,13 +464,38 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		EPT_Max,
 	};
 
-	ETypePrimitive typePrimitive = EPT_Triangle;
-	FVector3 offset(0.0f);
+	ETypePrimitive typePrimitive = EPT_Sphere;
+	FVector3 offset(0.0f);						// offset 총량이니까 total붙이는게 좋을듯 [복습]
+	FVector3 velocity(0.0f);
+
+	const float leftBorder = -1.0f;
+	const float rightBorder = 1.0f;
+	const float topBorder = -1.0f;
+	const float bottomBorder = 1.0f;
+	const float sphereRadius = 1.0f;
+
+	bool bBoundBallToScreen = true;
+	bool bPinballMovement = true;
+
+	const float ballSpeed = 0.001f;
+	velocity.x = ((float)(rand() % 100 - 50)) * ballSpeed;
+	velocity.y = ((float)(rand() % 100 - 50)) * ballSpeed;
+
+	const int targetFPS = 30;							// 초당 최대 30번 갱신 (targetFPS를 높일수록, ballSpeed도 빨라진다)
+	const double targetFrameTime = 1000.0f / targetFPS; // 한 프레임의 목표 시간 (밀리초 단위)
+
+	// 고성능 타이머 초기화
+	LARGE_INTEGER frequency;
+	QueryPerformanceFrequency(&frequency);
+
+	LARGE_INTEGER startTime, endTime;
+	double elapsedTime = 0.0;
 
 	bool bIsExit = false;
 
 	// Main Loop (Quit Message가 들어오기 전까지 아래 Loop를 무한히 실행하게 됨)
 	while (bIsExit == false) {
+		QueryPerformanceCounter(&startTime);
 		MSG msg;
 
 		// 처리할 메시지가 더 이상 없을 때까지 수행
@@ -482,19 +509,42 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 			if (msg.message == WM_QUIT) {
 				bIsExit = true;
 				break;
-			} else if (msg.message == WM_KEYDOWN) { // 조건이 많다면 점프 테이블 생성하여 성능 최적화 하는 switch-case가 유리
-				if (msg.wParam == VK_LEFT) {
-					offset.x -= 0.1f;
-				} else if (msg.wParam == VK_RIGHT) {
-					offset.x += 0.1f;
-				} else if (msg.wParam == VK_UP) {
-					offset.y += 0.1f;
-				} else if (msg.wParam == VK_DOWN) {
-					offset.y -= 0.1f;
+			} else if (msg.message == WM_KEYDOWN && !bPinballMovement) { // 조건이 많을수록 점프 테이블 생성하여 성능 최적화 하는 switch-case가 유리 (가급적 순차적인 감소/증가 순으로)
+				switch (msg.wParam) {
+				case VK_LEFT:	offset.x -= 0.1f; break;
+				case VK_UP:		offset.y += 0.1f; break;
+				case VK_RIGHT:	offset.x += 0.1f; break;
+				case VK_DOWN:	offset.y -= 0.1f; break;
 				}
 			}
 		}
+		// 키보드 처리 직후 화면 밖을 벗어났다면 화면 안쪽으로 재위치시킨다. (화면 벗어나지 않는 옵션이라면)
+		if (bBoundBallToScreen) {
+			float renderRadius = sphereRadius * scaleMod;
+			offset.x = std::clamp(offset.x, leftBorder + renderRadius, rightBorder - renderRadius);
+			offset.y = std::clamp(offset.y, topBorder + renderRadius, bottomBorder - renderRadius);
+		}
+		if (bPinballMovement) {
+			// 속도를 공위치에 더해 공을 실질적으로 움직임
+			offset.x += velocity.x;
+			offset.y += velocity.y;
+			offset.z += velocity.z;
 
+			float renderRadius = sphereRadius * scaleMod;
+			// 벽과 충돌 여부를 체크하고 충돌시 속도에 음수를 곱해 방향을 바꿈
+			if (offset.x < leftBorder + renderRadius) {
+				velocity.x *= -1.0f;
+			}
+			if (offset.x > rightBorder - renderRadius) {
+				velocity.x *= -1.0f;
+			}
+			if (offset.y < topBorder + renderRadius) {
+				velocity.y *= -1.0f;
+			}
+			if (offset.y > bottomBorder - renderRadius) {
+				velocity.y *= -1.0f;
+			}
+		}
 		////////////////////////////////////////////
 		// 매번 실행되는 코드를 여기에 추가
 		
@@ -503,18 +553,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		renderer.PrepareShader();
 
 		renderer.UpdateConstant(offset);	// offset을 상수 버퍼에 넣어 업데이트
-
-		switch (typePrimitive) {			// 생성한 버텍스 버퍼를 넘겨 실질적인 렌더링 요청
-		case EPT_Triangle:
-			renderer.RenderPrimitive(vertexBufferTriangle, numVerticesTriangle); 
-			break;
-		case EPT_Cube:
-			renderer.RenderPrimitive(vertexBufferCube, numVerticesCube);
-			break;
-		case EPT_Sphere:
-			renderer.RenderPrimitive(vertexBufferSphere, numVerticesSphere);
-			break;
-		}
+		renderer.RenderPrimitive(vertexBufferSphere, numVerticesSphere);
 
 		// [2] ImGui 렌더링 준비, 컨트롤 설정, 렌더링 요청
 		ImGui_ImplDX11_NewFrame();
@@ -524,30 +563,26 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		// [2] 이후 ImGui UI 컨트롤 추가는 ImGui::NewFrame()과 Render() 사이인 여기에 위치합니다
 		ImGui::Begin("Jungle Property Window");
 		ImGui::Text("Hello Jungle world!");
+		ImGui::Checkbox("Bound Ball to Screen", &bBoundBallToScreen);
+		ImGui::Checkbox("Pinball Movement", &bPinballMovement);
 
-		if (ImGui::Button("Change Primitive")) {
-			switch (typePrimitive) {
-			case EPT_Triangle:
-				typePrimitive = EPT_Cube;
-				break;
-			case EPT_Cube:
-				typePrimitive = EPT_Sphere;
-				break;
-			case EPT_Sphere:
-				typePrimitive = EPT_Triangle;
-				break;
-			}
-		}
+
 		ImGui::End();
-
 		ImGui::Render();
 		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData()); // 렌더링 요청
 
 		// [3] 현재 화면에 보여지는 버퍼와 그리기 작업을 위한 버퍼를 서로 교환
 		renderer.SwapBuffer();
 
-		////////////////////////////////////////////
+		do {
+			Sleep(0);
 
+			QueryPerformanceCounter(&endTime);
+
+			// 한 프레임이 소요된 시간 계산 (밀리초 단위로 변환) = (클럭 주기 차이) * 1000.0f / 초당 클럭 횟수 = c * 1000.0f / (c/s) = (ms)
+			elapsedTime = (endTime.QuadPart - startTime.QuadPart) * 1000.0f / frequency.QuadPart; // .QuadPart(공용체의 64비트 정수 멤버변수)
+		} while (elapsedTime < targetFrameTime);
+		
 	}
 	
 	// ImGui 소멸
