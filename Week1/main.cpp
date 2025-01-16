@@ -521,6 +521,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		// 키보드 처리 직후 화면 밖을 벗어났다면 화면 안쪽으로 재위치시킨다. (화면 벗어나지 않는 옵션이라면)
 		if (bBoundBallToScreen) {
 			float renderRadius = sphereRadius * scaleMod;
+			renderRadius *= (aspectRatio > 1.0f) ?  (1.0f / (aspectRatio)) : aspectRatio;			// 창크기에 따른 왜곡 보정
 			offset.x = std::clamp(offset.x, leftBorder + renderRadius, rightBorder - renderRadius);
 			offset.y = std::clamp(offset.y, topBorder + renderRadius, bottomBorder - renderRadius);
 		}
@@ -588,7 +589,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 			SAFE_RELEASE(vertexBufferSphere);
 			
-			float aspectRatio = wndSize.x / wndSize.y;
+			aspectRatio = wndSize.x / wndSize.y;
 			for (UINT i = 0; i < numVerticesSphere; ++i) {
 				nxtsphere_vertices[i].x = (aspectRatio > 1.0f) ? sphere_vertices[i].x / aspectRatio : sphere_vertices[i].x;
 				nxtsphere_vertices[i].y = (aspectRatio < 1.0f) ? sphere_vertices[i].y * aspectRatio : sphere_vertices[i].y;
