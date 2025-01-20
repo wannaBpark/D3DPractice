@@ -11,9 +11,10 @@ struct VS_INPUT
     float4 color : COLOR;       // input color from vertex buffer
 };
 
+// SV_POSITION : 래스터화기 단계로 입력되는 위 시맨틱은 반드시 투영변환의 결과여야 하며, clipping space 기준으로 한 위치여야 한다
 struct PS_INPUT
 {
-    float4 position : SV_POSITION; // Transformed position to pass to the pixel shader
+    float4 position : SV_POSITION; // Transformed position to pass to the pixel shader 
     float4 color : COLOR;          // Color to pass to the pixel shader
 };
 

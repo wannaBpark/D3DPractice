@@ -98,6 +98,25 @@ FVertexSimple cube_vertices[] = {
 	{  0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.5f, 1.0f }, // Bottom-right (purple)
 };
 
+// width 0.05, height 0.2 (1:4)
+FVertexSimple player1_vertices[] = {
+	{-0.95f, -0.1f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f}, // Bottom left  (red)
+	{-0.95f,  0.1f, 0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Top left	  (yellow)	 
+	{-0.9f,  -0.1f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Bottom right (blue)
+	{-0.95f,  0.1f, 0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Top left		(yellow)
+	{-0.9f,   0.1f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f }, // Top right	(green)
+	{-0.9f,  -0.1f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Bottom right	(blue)
+};
+
+FVertexSimple player2_vertices[] = {
+	{0.9f, -0.1f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f}, // Bottom left  (red)
+	{0.9f,  0.1f, 0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Top left	  (yellow)	 
+	{0.95f,  -0.1f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Bottom right (blue)
+	{0.9f,  0.1f, 0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Top left		(yellow)
+	{0.95f,   0.1f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f }, // Top right	(green)
+	{0.95f,  -0.1f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Bottom right	(blue)
+};
+
 class URenderer
 {
 public:
@@ -108,7 +127,7 @@ public:
 
 	// 렌더링에 필요한 리소스 및 상태를 관리하기 위한 변수들
 	ID3D11Texture2D* FrameBuffer = nullptr; // 화면 출력용 텍스처
-	ID3D11RenderTargetView* FrameBufferRTV = nullptr; // 텍스처를 렌더 타겟으로 사용하는 뷰
+	ID3D11RenderTargetView* FrameBufferRTV = nullptr; // 텍스처를 렌더 타겟으로 사용하는 자원 뷰(텍스처를 렌더링 출력으로 받으려 연결하려면 자원뷰가 필요, R)
 	ID3D11RasterizerState* RasterizerState = nullptr;  // 래스터라이저 상태(컬링, 채우기 모드 등 정의)
 	
 
@@ -126,7 +145,7 @@ public:
 		FVector3 Offset;
 		float Pad;
 	};
-	ID3D11Buffer* ConstantBuffer = nullptr; // 셰이더에 데이터를 전달하기 위한 상수 버퍼
+	ID3D11Buffer* ConstantBuffer = nullptr; // 셰이더에 데이터를 전달하기 위한 상수 버퍼 (공용, 매 프레임 상수 버퍼 값을 바꿔가며 출력)
 
 public:
 	// 렌더러 초기화 함수
@@ -152,15 +171,15 @@ public:
 
 		// 스왑 체인 설정 구조체 초기화
 		DXGI_SWAP_CHAIN_DESC swapchaindesc = {};
-		swapchaindesc.BufferDesc.Width = 0; // 창 크기에 맞게 자동으로 설정
-		swapchaindesc.BufferDesc.Height = 0; // 창 크기에 맞게 자동으로 설정
-		swapchaindesc.BufferDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; // 색상 포맷 | 텍스처에는 DXGI 열겨형 정의된 자료형식만 담을 수 있음
-		swapchaindesc.SampleDesc.Count = 1; // 멀티 샘플링 비활성화
-		swapchaindesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; // 렌더 타겟으로 사용
-		swapchaindesc.BufferCount = 2; // 더블 버퍼링
-		swapchaindesc.OutputWindow = hWindow; // 렌더링할 창 핸들
-		swapchaindesc.Windowed = TRUE; // 창모드
-		swapchaindesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD; // 스왑 방식
+		swapchaindesc.BufferDesc.Width = 0;								// 창 크기에 맞게 자동으로 설정
+		swapchaindesc.BufferDesc.Height = 0;							// 창 크기에 맞게 자동으로 설정
+		swapchaindesc.BufferDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;	// 색상 포맷 | 텍스처에는 DXGI 열겨형 정의된 자료형식만 담을 수 있음
+		swapchaindesc.SampleDesc.Count = 1;								// 멀티 샘플링 비활성화
+		swapchaindesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;	// 렌더 타겟으로 사용
+		swapchaindesc.BufferCount = 2;									// 더블 버퍼링
+		swapchaindesc.OutputWindow = hWindow;							// 렌더링할 창 핸들
+		swapchaindesc.Windowed = TRUE;									// 창모드
+		swapchaindesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;		// 스왑 방식
 
 		// Direct3D 장치와 스왑 체인을 생성
 		D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
@@ -194,7 +213,7 @@ public:
 	{
 		if (SwapChain) {
 			// [1] Swapchain과 관련한 Resource 해제 (pre-resize) : 기존 백버퍼인 FrameBuffer, RTV .. (DepthStencilView도 해야 함)
-			SAFE_RELEASE(FrameBuffer);			// 
+			SAFE_RELEASE(FrameBuffer);			
 			SAFE_RELEASE(FrameBufferRTV);
 
 			// [2] SwapChain 크기 조정 (첫번째 인자 0이면 기존 스왑체인 버퍼 수 유지)
@@ -265,10 +284,10 @@ public:
 
 	void CreateShader()
 	{
-		ID3DBlob* vertexShaderCSO;
+		ID3DBlob* vertexShaderCSO;			
 		ID3DBlob* pixelShaderCSO;
 
-		D3DCompileFromFile(L"ShaderW0.hlsl", nullptr, nullptr, "mainVS", "vs_5_0", 0, 0, &vertexShaderCSO, nullptr);
+		D3DCompileFromFile(L"ShaderW0.hlsl", nullptr, nullptr, "mainVS", "vs_5_0", 0, 0, &vertexShaderCSO, nullptr);					// 마지막 인자 : 컴파일 실패시 Blob 객체 문자열에 오류 메시지 저장
 		Device->CreateVertexShader(vertexShaderCSO->GetBufferPointer(), vertexShaderCSO->GetBufferSize(), nullptr, &SimpleVertexShader);
 		D3DCompileFromFile(L"ShaderW0.hlsl", nullptr, nullptr, "mainPS", "ps_5_0", 0, 0, &pixelShaderCSO, nullptr);
 		Device->CreatePixelShader(pixelShaderCSO->GetBufferPointer(), pixelShaderCSO->GetBufferSize(), nullptr, &SimplePixelShader);
@@ -278,12 +297,9 @@ public:
 			{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
 		};
 
-		Device->CreateInputLayout(layout, ARRAYSIZE(layout), vertexShaderCSO->GetBufferPointer(), vertexShaderCSO->GetBufferSize(), &SimpleInputLayout);
+		Device->CreateInputLayout(layout, ARRAYSIZE(layout), vertexShaderCSO->GetBufferPointer(), vertexShaderCSO->GetBufferSize(), &SimpleInputLayout); 
 
 		Stride = sizeof(FVertexSimple);
-		
-		/*SimpleVertexShader->Release();
-		SimplePixelShader->Release();*/
 	}
 
 	void ReleaseShader()
@@ -299,9 +315,8 @@ public:
 		DeviceContext->ClearRenderTargetView(FrameBufferRTV, ClearColor);
 		
 		DeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		DeviceContext->RSSetViewports(1, &ViewportInfo);
-
-		DeviceContext->RSSetViewports(1, &ViewportInfo);
+		
+		DeviceContext->RSSetViewports(1, &ViewportInfo); // 이 메서드로 설정되지 않은 뷰포트들은 자동으로 해제됨
 		DeviceContext->RSSetState(RasterizerState);
 
 		DeviceContext->OMSetRenderTargets(1, &FrameBufferRTV, nullptr); // 백 버퍼에 해당하는 RTV를 생성하고 묶어야함 (출력병합기)
@@ -355,7 +370,7 @@ public:
 	{
 		D3D11_BUFFER_DESC constantbufferdesc = {};
 		constantbufferdesc.ByteWidth = sizeof(FConstants) + 0xf & 0xfffffff0; // ensure constant buffer	size is multiple of 16 bytes (최소 16바이트 이상 & 0xfffffff0 = 가장 가깝고 큰 16의 배수)
-		constantbufferdesc.Usage = D3D11_USAGE_DYNAMIC; // will be updated from CPU frame;
+		constantbufferdesc.Usage = D3D11_USAGE_DYNAMIC; // will be updated from CPU frame (매 물체마다 동적으로 갱신 가능)
 		constantbufferdesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 		constantbufferdesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER; 
 
@@ -374,16 +389,46 @@ public:
 			D3D11_MAPPED_SUBRESOURCE constantbufferMSR;			// CPU접근 가능하도록 상수버퍼를 임시로 가져올 버퍼
 
 			DeviceContext->Map(ConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &constantbufferMSR); // 매프레임 상수 버퍼 업데이트 (맵핑시 CPU가 데이터 수정 가능)
-			FConstants* constants = (FConstants*)constantbufferMSR.pData; { // 맵핑된 버퍼의 실제 메모리 주소 가져옴 | 멤버 변수 바꿀 땐 중괄호 쓰는듯
+			FConstants* constants = (FConstants*)constantbufferMSR.pData; { // 맵핑된 버퍼의 시스템 메모리 주소 가져옴 | 해당 시스템 메모리를 수정 가능
 				constants->Offset = Offset;
 			}
-			DeviceContext->Unmap(ConstantBuffer, 0);		// 리소스를 GPU와의 정상적인 상태로 되돌림
+			DeviceContext->Unmap(ConstantBuffer, 0);		// 리소스를 GPU와의 정상적인 상태로 되돌림 (GPU가 이제 읽기 가능)
 		}
 	}
 };
 
+class UObject {
+public:
+	FVertexSimple* vertices;
+	FVector3 pos;
+	FVector3 offset;
+	FVector3 velocity;
+	union {
+		FVector2 renderRadius;
+		struct {
+			float width;
+			float height;
+		};
+	};
+	UObject() : vertices(nullptr), offset(0.0f), velocity(0.0f), width(0.0f), height(0.0f), pos(0.0f)  {}
+};
+
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam); // 함수는 선언 시 자동으로 extern이 붙음(안붙여도된다는 뜻) / 사용자 정의 함수여서 명시적으로 어디에 있는지 알아야함 -> extern 사용 (<->scanf는 이미 컴파일된 라이브러리 O)
 
+struct AABB {
+	float xMin, yMin;
+	float xMax, yMax;
+};
+static inline int IsCollision(UObject& sphere, UObject& paddle, float sphereRadius)
+{
+	float dx = std::fabs(sphere.offset.x - (paddle.pos.x + paddle.offset.x));
+	float dy = std::fabs(sphere.offset.y - (paddle.pos.y + paddle.offset.y));
+
+	if (dx <= (sphereRadius + paddle.width / 2.0f) && dy <= (sphereRadius + paddle.height / 2.0f)) {
+		return true;
+	}
+	return false;
+}
 // 각종 메시지를 처리할 함수
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -415,7 +460,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	// 윈도우 클래스 등록
 	RegisterClassW(&wndclass);
 
-	FVector2 wndSize = { 1920, 900};
+	FVector2 wndSize = { 600, 600 };
 	float aspectRatio = wndSize.x / wndSize.y;
 	// 1024 x 1024 크기에 윈도우 생성
 	HWND hWnd = CreateWindowExW(0, WindowClass, Title, WS_POPUP | WS_VISIBLE | WS_OVERLAPPEDWINDOW,
@@ -441,6 +486,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	UINT numVerticesTriangle = sizeof(triangle_vertices) / sizeof(FVertexSimple);
 	UINT numVerticesCube = sizeof(cube_vertices) / sizeof(FVertexSimple);
 	UINT numVerticesSphere = sizeof(sphere_vertices) / sizeof(FVertexSimple);
+	UINT numVerticesPlayer = sizeof(player1_vertices) / sizeof(FVertexSimple);
 
 	std::unique_ptr<FVertexSimple[]> nxtsphere_vertices{ new FVertexSimple[numVerticesSphere] }; // 해상도에 따라 변경될 구 정점 저장할 배열
 
@@ -455,7 +501,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	ID3D11Buffer* vertexBufferTriangle = renderer.CreateVertexBuffer(triangle_vertices, sizeof(triangle_vertices));
 	ID3D11Buffer* vertexBufferCube = renderer.CreateVertexBuffer(cube_vertices, sizeof(cube_vertices));
+	// 공1개, 패들 2개 정의
 	ID3D11Buffer* vertexBufferSphere = renderer.CreateVertexBuffer(sphere_vertices, sizeof(sphere_vertices));
+	ID3D11Buffer* vertexBufferPlayer1 = renderer.CreateVertexBuffer(player1_vertices, sizeof(player1_vertices));
+	ID3D11Buffer* vertexBufferPlayer2 = renderer.CreateVertexBuffer(player2_vertices, sizeof(player2_vertices));
 
 	enum ETypePrimitive {
 		EPT_Triangle,
@@ -465,8 +514,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	};
 
 	ETypePrimitive typePrimitive = EPT_Sphere;
-	FVector3 offset(0.0f);						// offset 총량이니까 total붙이는게 좋을듯 [복습]
-	FVector3 velocity(0.0f);
+	
+	UINT numObjects = 3;
+	UObject* objects = new UObject[numObjects];
+	ID3D11Buffer* vertexbuffers[3] = { vertexBufferSphere, vertexBufferPlayer1, vertexBufferPlayer2 };
+	UINT numVertices[3] = { numVerticesSphere , numVerticesPlayer,numVerticesPlayer };
+	objects[0].vertices = sphere_vertices; objects[1].vertices = player1_vertices; objects[2].vertices = player2_vertices;
+	objects[1].width = objects[2].width = 0.05f;	// Paddle width
+	objects[1].height = objects[2].height = 0.2f;	// Paddle height
+	objects[1].pos.x = -0.925f;
+	objects[2].pos.x = 0.925f;
 
 	const float leftBorder = -1.0f;
 	const float rightBorder = 1.0f;
@@ -475,11 +532,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	const float sphereRadius = 1.0f;
 
 	bool bBoundBallToScreen = true;
+	bool bBoundPaddleToScreen = true;
 	bool bPinballMovement = true;
 
 	const float ballSpeed = 0.001f;
-	velocity.x = ((float)(rand() % 100 - 50)) * ballSpeed;
-	velocity.y = ((float)(rand() % 100 - 50)) * ballSpeed;
+	objects[0].velocity.y = ((float)(rand() % 100 - 50)) * ballSpeed;
+	objects[0].velocity.x = ((float)(rand() % 100 - 50)) * ballSpeed;
 
 	const int targetFPS = 30;							// 초당 최대 30번 갱신 (targetFPS를 높일수록, ballSpeed도 빨라진다)
 	const double targetFrameTime = 1000.0f / targetFPS; // 한 프레임의 목표 시간 (밀리초 단위)
@@ -509,31 +567,56 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 			if (msg.message == WM_QUIT) {
 				bIsExit = true;
 				break;
-			} else if (msg.message == WM_KEYDOWN && !bPinballMovement) { // 조건이 많을수록 점프 테이블 생성하여 성능 최적화 하는 switch-case가 유리 (가급적 순차적인 감소/증가 순으로)
-				switch (msg.wParam) {
-				case VK_LEFT:	offset.x -= 0.1f; break;
-				case VK_UP:		offset.y += 0.1f; break;
-				case VK_RIGHT:	offset.x += 0.1f; break;
-				case VK_DOWN:	offset.y -= 0.1f; break;
+			} else if (msg.message == WM_KEYDOWN) { // 조건이 많을수록 점프 테이블 생성하여 성능 최적화 하는 switch-case가 유리 (가급적 순차적인 감소/증가 순으로)
+				if (!bPinballMovement) {
+					switch (msg.wParam) {
+					case VK_LEFT:	objects[0].offset.x -= 0.1f; break;
+					case VK_UP:		objects[0].offset.y += 0.1f; break;
+					case VK_RIGHT:	objects[0].offset.x += 0.1f; break;
+					case VK_DOWN:	objects[0].offset.y -= 0.1f; break;
+					}
 				}
-			}
+				if (GetAsyncKeyState(0x57) & 0x8000) { // W 키 : Player1 상
+					objects[1].offset.y += 0.1f;
+				}
+				if (GetAsyncKeyState(0x53) & 0x8000) { // S 키 : Player1 하
+					objects[1].offset.y -= 0.1f;
+				}
+				if (GetAsyncKeyState(0x49) & 0x8000) { // I 키 : Player2 상
+					objects[2].offset.y += 0.1f;
+				}
+				if (GetAsyncKeyState(0x4A) & 0x8000) { // J 키 : Player2 하
+					objects[2].offset.y -= 0.1f;
+				}
+			} 
 		}
 		// 키보드 처리 직후 화면 밖을 벗어났다면 화면 안쪽으로 재위치시킨다. (화면 벗어나지 않는 옵션이라면)
 		if (bBoundBallToScreen) {
 			float renderRadius = sphereRadius * scaleMod;
+			auto& offset = objects[0].offset;
 			renderRadius *= (aspectRatio > 1.0f) ?  (1.0f / (aspectRatio)) : aspectRatio;			// 창크기에 따른 왜곡 보정
 			offset.x = std::clamp(offset.x, leftBorder + renderRadius, rightBorder - renderRadius);
 			offset.y = std::clamp(offset.y, topBorder + renderRadius, bottomBorder - renderRadius);
 		}
+		if (bBoundPaddleToScreen) {
+			for (size_t i = 1; i < 3; ++i) {
+				auto& offset = objects[i].offset;
+				FVector2 renderRadius = { objects[i].width/2.0f, objects[i].height/2.0f };
+				offset.x = std::clamp(offset.x, leftBorder + renderRadius.x, rightBorder -  renderRadius.x);
+				offset.y = std::clamp(offset.y, topBorder +  renderRadius.y, bottomBorder - renderRadius.y);
+			}
+		}
 		if (bPinballMovement) {
 			// 속도를 공위치에 더해 공을 실질적으로 움직임
+			UObject& sphere = objects[0];
+			auto& offset = sphere.offset;
+			auto& velocity = sphere.velocity;
 			offset.x += velocity.x;
 			offset.y += velocity.y;
 			offset.z += velocity.z;
 
-
-			float renderRadius = sphereRadius * scaleMod;
 			// 벽과 충돌 여부를 체크하고 충돌시 속도에 음수를 곱해 방향을 바꿈
+			float renderRadius = sphereRadius * scaleMod;
 			if (offset.x < leftBorder + renderRadius) {
 				velocity.x *= -1.0f;
 			}
@@ -546,6 +629,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 			if (offset.y > bottomBorder - renderRadius) {
 				velocity.y *= -1.0f;
 			}
+
+			for (size_t i = 1; i < 3; ++i) {
+				UObject& paddle = objects[i];
+				if (IsCollision(sphere, paddle, renderRadius)) {
+					sphere.velocity.x *= -1.0f;
+				}
+			}
 		}
 		////////////////////////////////////////////
 		// 매번 실행되는 코드를 여기에 추가
@@ -554,8 +644,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		renderer.Prepare();
 		renderer.PrepareShader();
 
-		renderer.UpdateConstant(offset);	// offset을 상수 버퍼에 넣어 업데이트
-		renderer.RenderPrimitive(vertexBufferSphere, numVerticesSphere);
+		for (size_t i = 0; i < numObjects; ++i) {
+			auto& object = objects[i];
+			renderer.UpdateConstant(object.offset);
+			renderer.DeviceContext->VSSetConstantBuffers(0, 1, &renderer.ConstantBuffer);
+			renderer.RenderPrimitive(vertexbuffers[i], numVertices[i]);
+		}
 
 		// [2] ImGui 렌더링 준비, 컨트롤 설정, 렌더링 요청
 		ImGui_ImplDX11_NewFrame();
@@ -566,6 +660,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		ImGui::Begin("Jungle Property Window");
 		ImGui::Text("Hello Jungle world!");
 		ImGui::Checkbox("Bound Ball to Screen", &bBoundBallToScreen);
+		ImGui::Checkbox("Bound Paddle to Screen", &bBoundPaddleToScreen);
 		ImGui::Checkbox("Pinball Movement", &bPinballMovement);
 		ImGui::InputFloat2("Change Window Size", &wndSize.x, "%.0f");
 
@@ -595,6 +690,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 				nxtsphere_vertices[i].y = (aspectRatio < 1.0f) ? sphere_vertices[i].y * aspectRatio : sphere_vertices[i].y;
 			}
 			vertexBufferSphere = renderer.CreateVertexBuffer(nxtsphere_vertices.get(), sizeof(sphere_vertices));
+			vertexbuffers[0] = vertexBufferSphere;
 		} else {
 			ImGui::End();
 			ImGui::Render();
@@ -614,6 +710,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		
 	}
 
+	delete[] objects;
 	// ImGui 소멸
 	ImGui_ImplDX11_Shutdown();
 	ImGui_ImplWin32_Shutdown();
