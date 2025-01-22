@@ -12,6 +12,7 @@
 
 #include "URenderer.h"
 #include "Sphere.h"
+#include "UObject.h"
 
 // 삼각형을 하드 코딩 (vertex마다 위치, 색상을 가지는 구조) / 왼손좌표계(시계방향, 왼손이 카메라를 향하도록)이므로 vertex순서도 위오른왼
 FVertexSimple triangle_vertices[] = {
@@ -101,21 +102,7 @@ FVertexSimple player2_vertices[] = {
 	{0.95f, 0.1f, 0.75f, 0.0f, 0.0f, 1.0f, 1.0f }, // Top right	(blue)
 	{0.95f, 0.1f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f}, // Bottom right (green)
 };
-class UObject {
-public:
-	FVertexSimple* vertices;
-	FVector3 pos;
-	FVector3 offset;
-	FVector3 velocity;
-	union {
-		FVector2 renderRadius;
-		struct {
-			float width;
-			float height;
-		};
-	};
-	UObject() : vertices(nullptr), offset(0.0f), velocity(0.0f), width(0.0f), height(0.0f), pos(0.0f)  {}
-};
+
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam); // 함수는 선언 시 자동으로 extern이 붙음(안붙여도된다는 뜻) / 사용자 정의 함수여서 명시적으로 어디에 있는지 알아야함 -> extern 사용 (<->scanf는 이미 컴파일된 라이브러리 O)
 
@@ -126,9 +113,9 @@ struct AABB {
 static inline int IsCollision(UObject& sphere, UObject& paddle, float sphereRadius)
 {
 	// 부딪힐 방향으로 올 때만 방향을 바꿔주도록 함(벽에 튕기고 패들 부딪히는 경우 제외)
-	bool bDirection = (sphere.velocity.x * paddle.pos.x > 0);
-	float dx = std::fabs(sphere.offset.x - (paddle.pos.x + paddle.offset.x));
-	float dy = std::fabs(sphere.offset.y - (paddle.pos.y + paddle.offset.y));
+	bool bDirection = (sphere.m_Velocity.x * paddle.m_Pos.x > 0);
+	float dx = std::fabs(sphere.m_Offset.x - (paddle.m_Pos.x + paddle.m_Offset.x));
+	float dy = std::fabs(sphere.m_Offset.y - (paddle.m_Pos.y + paddle.m_Offset.y));
 
 	if (bDirection && dx <= (sphereRadius + paddle.width / 2.0f) && dy <= (sphereRadius + paddle.height / 2.0f)) {
 		return true;
@@ -209,7 +196,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	ID3D11Buffer* vertexBufferTriangle = renderer.CreateVertexBuffer(triangle_vertices, sizeof(triangle_vertices));
 	ID3D11Buffer* vertexBufferCube = renderer.CreateVertexBuffer(cube_vertices, sizeof(cube_vertices));
 	// 공1개, 패들 2개 정의
-	ID3D11Buffer* vertexBufferSphere = renderer.CreateVertexBuffer(sphere_vertices, sizeof(sphere_vertices));
+	ID3D11Buffer* vertexBufferSphere = renderer.CreateVertexBuffer((FVertexSimple*)sphere_vertices, sizeof(sphere_vertices));
 	ID3D11Buffer* vertexBufferPlayer1 = renderer.CreateVertexBuffer(player1_vertices, sizeof(player1_vertices));
 	ID3D11Buffer* vertexBufferPlayer2 = renderer.CreateVertexBuffer(player2_vertices, sizeof(player2_vertices));
 
@@ -224,13 +211,30 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	
 	UINT numObjects = 3;
 	UObject* objects = new UObject[numObjects];
-	ID3D11Buffer* vertexbuffers[3] = { vertexBufferSphere, vertexBufferPlayer1, vertexBufferPlayer2 };
-	UINT numVertices[3] = { numVerticesSphere , numVerticesPlayer1, numVerticesPlayer2 };
-	objects[0].vertices = sphere_vertices; objects[1].vertices = player1_vertices; objects[2].vertices = player2_vertices;
+	ID3D11Buffer* vertexbuffers[3] = { 
+		vertexBufferSphere, vertexBufferPlayer1, vertexBufferPlayer2 
+	};
+	UINT numVertices[3] = { 
+		numVerticesSphere , numVerticesPlayer1, numVerticesPlayer2 
+	};
+	FVertexSimple* vertices[3] = {
+		sphere_vertices, player1_vertices, player2_vertices
+	};
+	for (UINT i = 0; i < numObjects; ++i) {
+		objects[i].m_vbId = i;									// Set VertexBuffer Id
+		objects[i].vertices = vertices[i];
+		renderer.m_VertexBuffers.push_back(vertexbuffers[i]);	// push corresponding VB
+		renderer.m_numVertices.push_back(numVertices[i]);		// push corresponding numVertices
+		
+	}
+	UObject& sphere = objects[0];
+	UObject& player1 = objects[1];
+	UObject& player2 = objects[2];
+
 	objects[1].width = objects[2].width = 0.05f;	// Paddle width
 	objects[1].height = objects[2].height = 0.2f;	// Paddle height
-	objects[1].pos.x = -0.925f;
-	objects[2].pos.x = 0.925f;
+	objects[1].m_Pos.x = -0.925f;
+	objects[2].m_Pos.x = 0.925f;
 
 	const float leftBorder = -1.0f;
 	const float rightBorder = 1.0f;
@@ -243,8 +247,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	bool bPinballMovement = true;
 
 	const float ballSpeed = 0.001f;
-	objects[0].velocity.y = ((float)(rand() % 100 - 50)) * ballSpeed;
-	objects[0].velocity.x = ((float)(rand() % 100 - 50)) * ballSpeed;
+	objects[0].m_Velocity.y = ((float)(rand() % 100 - 50)) * ballSpeed;
+	objects[0].m_Velocity.x = ((float)(rand() % 100 - 50)) * ballSpeed;
 
 	const int targetFPS = 30;							// 초당 최대 30번 갱신 (targetFPS를 높일수록, ballSpeed도 빨라진다)
 	const double targetFrameTime = 1000.0f / targetFPS; // 한 프레임의 목표 시간 (밀리초 단위)
@@ -277,38 +281,40 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 			} else if (msg.message == WM_KEYDOWN) { // 조건이 많을수록 점프 테이블 생성하여 성능 최적화 하는 switch-case가 유리 (가급적 순차적인 감소/증가 순으로)
 				if (!bPinballMovement) {
 					switch (msg.wParam) {
-					case VK_LEFT:	objects[0].offset.x -= 0.1f; break;
-					case VK_UP:		objects[0].offset.y += 0.1f; break;
-					case VK_RIGHT:	objects[0].offset.x += 0.1f; break;
-					case VK_DOWN:	objects[0].offset.y -= 0.1f; break;
+					case VK_LEFT:	objects[0].m_Offset.x -= 0.1f; break;
+					case VK_UP:		objects[0].m_Offset.y += 0.1f; break;
+					case VK_RIGHT:	objects[0].m_Offset.x += 0.1f; break;
+					case VK_DOWN:	objects[0].m_Offset.y -= 0.1f; break;
 					}
 				}
+				// (동시 입력 처리)
 				if (GetAsyncKeyState(0x57) & 0x8000) { // W 키 : Player1 상
-					objects[1].offset.y += 0.1f;
+					objects[1].m_Offset.y += 0.1f;
 				}
 				if (GetAsyncKeyState(0x53) & 0x8000) { // S 키 : Player1 하
-					objects[1].offset.y -= 0.1f;
+					objects[1].m_Offset.y -= 0.1f;
 				}
 				if (GetAsyncKeyState(0x49) & 0x8000) { // I 키 : Player2 상
-					objects[2].offset.y += 0.1f;
+					objects[2].m_Offset.y += 0.1f;
 				}
 				if (GetAsyncKeyState(0x4A) & 0x8000) { // J 키 : Player2 하
-					objects[2].offset.y -= 0.1f;
+					objects[2].m_Offset.y -= 0.1f;
 				}
 			} 
 		}
 		// 키보드 처리 직후 화면 밖을 벗어났다면 화면 안쪽으로 재위치시킨다. (화면 벗어나지 않는 옵션이라면)
 		if (bBoundBallToScreen) {
 			float renderRadius = sphereRadius * scaleMod;
-			auto& offset = objects[0].offset;
+			auto& offset = objects[0].m_Offset;
 			renderRadius *= (aspectRatio > 1.0f) ?  (1.0f / (aspectRatio)) : aspectRatio;			// 창크기에 따른 왜곡 보정
 			offset.x = std::clamp(offset.x, leftBorder + renderRadius, rightBorder - renderRadius);
 			offset.y = std::clamp(offset.y, topBorder + renderRadius, bottomBorder - renderRadius);
 		}
 		if (bBoundPaddleToScreen) {
 			for (size_t i = 1; i < 3; ++i) {
-				auto& offset = objects[i].offset;
-				FVector2 renderRadius = { objects[i].width/2.0f, objects[i].height/2.0f };
+				auto& paddle = objects[i];
+				auto& offset = paddle.m_Offset;
+				FVector2 renderRadius = { paddle.width / 2.0f, paddle.height / 2.0f };
 				offset.x = std::clamp(offset.x, leftBorder + renderRadius.x, rightBorder -  renderRadius.x);
 				offset.y = std::clamp(offset.y, topBorder +  renderRadius.y, bottomBorder - renderRadius.y);
 			}
@@ -316,11 +322,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		if (bPinballMovement) {
 			// 속도를 공위치에 더해 공을 실질적으로 움직임
 			UObject& sphere = objects[0];
-			auto& offset = sphere.offset;
-			auto& velocity = sphere.velocity;
-			offset.x += velocity.x;
-			offset.y += velocity.y;
-			offset.z += velocity.z;
+			auto& offset = sphere.m_Offset;
+			auto& velocity = sphere.m_Velocity;
+			sphere.Move(velocity);
 
 			// 벽과 충돌 여부를 체크하고 충돌시 속도에 음수를 곱해 방향을 바꿈
 			float renderRadius = sphereRadius * scaleMod;
@@ -340,7 +344,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 			for (size_t i = 1; i < 3; ++i) {
 				UObject& paddle = objects[i];
 				if (IsCollision(sphere, paddle, renderRadius)) {
-					sphere.velocity.x *= -1.0f;
+					sphere.m_Velocity.x *= -1.0f;
 				}
 			}
 		}
@@ -353,9 +357,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 		for (size_t i = 0; i < numObjects; ++i) {
 			auto& object = objects[i];
-			renderer.UpdateConstant(object.offset);
+			renderer.UpdateConstant(object.m_Offset);
 			renderer.DeviceContext->VSSetConstantBuffers(0, 1, &renderer.ConstantBuffer);
-			renderer.RenderPrimitive(vertexbuffers[i], numVertices[i]);
+			renderer.RenderPrimitiveById(i, 0, 0);
 		}
 
 		// [2] ImGui 렌더링 준비, 컨트롤 설정, 렌더링 요청
@@ -389,7 +393,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 			ImGui_ImplWin32_Init((void*)hWnd);
 			ImGui_ImplDX11_Init(renderer.Device, renderer.DeviceContext);
 
-			SAFE_RELEASE(vertexBufferSphere);
+			SAFE_RELEASE(renderer.m_VertexBuffers[sphere.m_vbId]);
 			
 			aspectRatio = wndSize.x / wndSize.y;
 			for (UINT i = 0; i < numVerticesSphere; ++i) {
@@ -397,7 +401,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 				nxtsphere_vertices[i].y = (aspectRatio < 1.0f) ? sphere_vertices[i].y * aspectRatio : sphere_vertices[i].y;
 			}
 			vertexBufferSphere = renderer.CreateVertexBuffer(nxtsphere_vertices.get(), sizeof(sphere_vertices));
-			vertexbuffers[0] = vertexBufferSphere;
+			renderer.m_VertexBuffers[sphere.m_vbId] = vertexBufferSphere;
 		} else {
 			ImGui::End();
 			ImGui::Render();
@@ -424,9 +428,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	ImGui::DestroyContext();
 
 	// COM 오브젝트는 Release로만 각각 소멸 가능 (delete X)
-	renderer.ReleaseVertexBuffer(vertexBufferTriangle);	// 버텍스 버퍼 소멸은 렌더러 소멸 전에 처리
-	renderer.ReleaseVertexBuffer(vertexBufferCube);
-	renderer.ReleaseVertexBuffer(vertexBufferSphere);
+	renderer.ReleaseVertexBuffers();		// 버텍스 버퍼 소멸은 렌더러 소멸 전에 처리
 
 	renderer.ReleaseConstantBuffer();
 	renderer.ReleaseShader();   // 렌더러 소멸 직전 셰이더를 소멸시키는 함수 호출
