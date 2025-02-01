@@ -1,7 +1,16 @@
-///////////////////////TODO : SWapchain Á¤º¸ º¯°æ
+ï»¿///////////////////////TODO : SWapchain ì •ë³´ ë³€ê²½
 #include <windows.h>
 
-// ImGui °ü·Ã Çì´õ
+// D3D ì‚¬ìš©ì— í•„ìš”í•œ ë¼ì´ë¸ŒëŸ¬ë¦¬ë“¤ì„ ë§í¬í•©ë‹ˆë‹¤.
+#pragma comment(lib, "user32")
+#pragma comment(lib, "d3d11")
+#pragma comment(lib, "d3dcompiler")
+
+// D3D ì‚¬ìš©ì— í•„ìš”í•œ í—¤ë”íŒŒì¼ë“¤ì„ í¬í•¨í•©ë‹ˆë‹¤.
+#include <d3d11.h>
+#include <d3dcompiler.h>
+
+// ImGui ê´€ë ¨ í—¤ë”
 #include "ImGui/imgui.h"
 #include "ImGui/imgui_internal.h"
 #include "ImGui/imgui_impl_dx11.h"
@@ -10,132 +19,537 @@
 #include <iostream>
 #include <algorithm> // clamp
 
-#include "URenderer.h"
+// 1. Define the triangle vertices 
+struct FVertexSimple {
+	float x, y, z;		// Position (ë™ì°¨ì¢Œí‘œê³„ë¡œ ë³€í™˜í•˜ë©´ 4ì°¨ì›)
+	float r, g, b, a;	// Color 
+};
+
 #include "Sphere.h"
 
-// »ï°¢ÇüÀ» ÇÏµå ÄÚµù (vertex¸¶´Ù À§Ä¡, »ö»óÀ» °¡Áö´Â ±¸Á¶) / ¿Ş¼ÕÁÂÇ¥°è(½Ã°è¹æÇâ, ¿Ş¼ÕÀÌ Ä«¸Ş¶ó¸¦ ÇâÇÏµµ·Ï)ÀÌ¹Ç·Î vertex¼ø¼­µµ À§¿À¸¥¿Ş
-FVertexSimple triangle_vertices[] = {
-	{0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f}, // Top vertex(red)
-	{1.0f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f}, // Bottom-right vertex(green)
-	{-1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f}, // Bottom-left vertex(blue)
+#define SAFE_RELEASE( x ) {if(x){(x)->Release();(x)=NULL;}}
+
+#pragma region FVectors
+// structure for a 3D vector
+struct FVector3 {
+	float x, y, z;
+	FVector3(float _x = 0, float _y = 0, float _z = 0) : x(_x), y(_y), z(_z) {}
+	FVector3 operator+(const FVector3& other) const noexcept {
+		return { x + other.x, y + other.y, z + other.z };
+	}
+	FVector3 operator-(const FVector3& other) const noexcept {
+		return { x - other.x, y - other.y, z - other.z };
+	}
+	FVector3 operator*(float scale) const noexcept {
+		return { x * scale, y * scale, z * scale };
+	}
+	FVector3 operator/(float scale) const noexcept {
+		return { x / scale, y / scale, z / scale };
+	}
+	void normalize() {
+		float w = sqrt(x * x + y * y + z * z);
+		*this = { x / w , y / w , z / w };
+	}
+	float dot(const FVector3& other) const noexcept {
+		return x * other.x + y * other.y + z * other.z;
+	}
+
+	FVector3 cross(const FVector3& other) const noexcept {
+		return { y * other.z - z * other.y, x * other.z - z * other.x, x * other.y - y * other.x, };
+	}
+	float length() const {
+		return sqrt(x * x + y * y + z * z);
+	}
+
+	// ë¡œë“œë¦¬ê²ŒìŠ¤ íšŒì „ ê³µì‹  vnxt = vcos + (k x v) * s + k * (k * v) ( 1 - cos)
+	FVector3 rotateAround(FVector3 axis, float angle) const {
+		FVector3 ret;
+		float s = sin(angle);
+		float c = cos(angle);
+		axis.normalize();
+		return ret = { *(this) * c + axis.cross(*this) * s + axis * (axis.dot(*this) * (1 - c)) };
+	}
 };
-
-// With No Z-depth test .. ±×·ÁÁø ¼ø¼­°¡ µÚÀÏ¼ö·Ï º¸ÀÎ´Ù
-FVertexSimple cube_vertices[] = {
-	// Front face (Z+) (È­¸é ¹Ù·Î ¾ÕÀÇ »ç°¢Çü, z°¡ ¾ç¼öÀÓ¿¡ À¯ÀÇ)
-	{-0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f}, // Bottom-left (red)
-	{-0.5f,  0.5f, 0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Top-left (yellow)
-	{ 0.5f, -0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f}, // Bottom-right (green)
-	{-0.5f,  0.5f, 0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Top-left (yellow)
-	{ 0.5f,	 0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Top-right (blue)
-	{ 0.5f, -0.5f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f}, // Bottom-right (green)
-
-	// Back face (Z-) (¿Ş¼ÕÁÂÇ¥°è·Î ¸»¾ÒÀ» ¶§, ³» µîµÚ¸¦ ÇâÇÔ | ¸¸¾à ³» Á¤¸éÀ» ÇâÇÏ°Ô ¿Ş¼ÕÀ» ¸»µµ·Ï 1) ¼ø¼­ 2) Z 0.5·Î º¯°æÇÏ¸é ÇØ´ç ¸éÀÌ ±×·ÁÁø´Ù)
-	{-0.5f, -0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f}, // Bottom-left (cyan)
-	{ 0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 1.0f, 1.0f}, // Bottom-right (magenta)
-	{-0.5f,  0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Top-left (blue)
-	{-0.5f,  0.5f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Top-left (blue)
-	{ 0.5f, -0.5f, 0.5f, 1.0f, 0.0f, 1.0f, 1.0f}, // Bottom-right (magenta)
-	{ 0.5f,  0.5f, 0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Top-right (yellow)
-
-	// Left face (X-)
-	{-0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 1.0f, 1.0f }, // Bottom-left (purple)
-	{-0.5f,  0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Top-left (blue)
-	{-0.5f, -0.5f,  0.5f, 0.0f, 1.0f, 0.0f, 1.0f}, // Bottom-right (green)
-	{-0.5f,  0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Top-left (blue)
-	{-0.5f,  0.5f,  0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Top-right (yellow)
-	{-0.5f, -0.5f,  0.5f, 0.0f, 1.0f, 0.0f, 1.0f}, // Bottom-right (green)
-
-	// Right face (X+) (ÀÌ°Å Á» Àß¸øµÈ µí)
-	{0.5f, -0.5f, -0.5f, 1.0f, 0.5f, 0.0f, 1.0f }, // Bottom-left (orange)
-	{0.5f, -0.5f,  0.5f, 0.5f, 0.5f, 0.5f, 1.0f }, // Bottom-right (gray)
-	{0.5f,  0.5f, -0.5f, 0.5f, 0.0f, 0.5f, 1.0f }, // Top-left (purple)
-	{0.5f,  0.5f, -0.5f, 0.5f, 0.0f, 0.5f, 1.0f }, // Top-left (purple)
-	{0.5f, -0.5f,  0.5f, 0.5f, 0.5f, 0.5f, 1.0f }, // Bottom-right (gray)
-	{0.5f,  0.5f,  0.5f, 0.0f, 0.0f, 0.5f, 1.0f }, // Top-right (dark blue)
-
-	// Top face (Y+) BottomÀÌ front À§ 2°³ Á¤Á¡, z=-0.5f
-	{ -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 0.5f, 1.0f }, // Bottom-left (light green)
-	{ -0.5f,  0.5f,  0.5f,  0.0f, 0.5f, 1.0f, 1.0f }, // Top-left (cyan)
-	{  0.5f,  0.5f, -0.5f,  0.5f, 1.0f, 1.0f, 1.0f }, // Bottom-right (white)
-	{ -0.5f,  0.5f,  0.5f,  0.0f, 0.5f, 1.0f, 1.0f }, // Top-left (cyan)
-	{  0.5f,  0.5f,  0.5f,  0.5f, 0.5f, 0.0f, 1.0f }, // Top-right (brown)
-	{  0.5f,  0.5f, -0.5f,  0.5f, 1.0f, 1.0f, 1.0f }, // Bottom-right (white)
-
-	// Bottom face (Y-)
-	{ -0.5f, -0.5f, -0.5f,  0.5f, 0.5f, 0.0f, 1.0f }, // Bottom-left (brown)
-	{ -0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 0.0f, 1.0f }, // Top-left (red)
-	{  0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.5f, 1.0f }, // Bottom-right (purple)
-	{ -0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 0.0f, 1.0f }, // Top-left (red)
-	{  0.5f, -0.5f,  0.5f,  0.0f, 1.0f, 0.0f, 1.0f }, // Top-right (green)
-	{  0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.5f, 1.0f }, // Bottom-right (purple)
+struct FVector2 {
+	float x, y;
+	FVector2(float _x = 0, float _y = 0) : x(_x), y(_y) {}
+	FVector2 operator+(const FVector2& other) const noexcept {
+		return { x + other.x, y + other.y };
+	}
 };
+#pragma endregion
 
-// width 0.05, height 0.2 (1:4)
-FVertexSimple player1_vertices[] = {
-	// Front face
-	{-0.95f, -0.1f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f}, // Bottom left  (red)
-	{-0.95f,  0.1f, 0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Top left	  (yellow)	 
-	{-0.9f,  -0.1f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Bottom right (blue)
-	{-0.95f,  0.1f, 0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Top left		(yellow)
-	{-0.9f,   0.1f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f }, // Top right	(green)
-	{-0.9f,  -0.1f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Bottom right	(blue)
-
-	// Up
-};
-
-FVertexSimple player2_vertices[] = {
-	// Front face
-	{0.9f, -0.1f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f}, // Bottom left  (red)
-	{0.9f,  0.1f, 0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Top left	  (yellow)	 
-	{0.95f,  -0.1f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Bottom right (blue)
-	{0.9f,  0.1f, 0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Top left		(yellow)
-	{0.95f,   0.1f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f }, // Top right	(green)
-	{0.95f,  -0.1f, 0.5f, 0.0f, 0.0f, 1.0f, 1.0f}, // Bottom right	(blue)
-
-	// Top face
-	{0.9f,  0.1f, 0.5f, 1.0f, 1.0f, 0.0f, 1.0f}, // Bottom left  (yellow)
-	{0.9f,  0.1f, 0.75f, 1.0f, 0.0f, 0.0f, 1.0f}, // Top left	  (red)	 
-	{0.95f, 0.1f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f}, // Bottom right (green)
-	{0.9f,  0.1f, 0.75f, 1.0f, 0.0f, 0.0f, 1.0f}, // Top left	  (red)	 
-	{0.95f, 0.1f, 0.75f, 0.0f, 0.0f, 1.0f, 1.0f }, // Top right	(blue)
-	{0.95f, 0.1f, 0.5f, 0.0f, 1.0f, 0.0f, 1.0f}, // Bottom right (green)
-};
-class UObject {
-public:
-	FVertexSimple* vertices;
-	FVector3 pos;
-	FVector3 offset;
-	FVector3 velocity;
-	union {
-		FVector2 renderRadius;
-		struct {
-			float width;
-			float height;
-		};
-	};
-	UObject() : vertices(nullptr), offset(0.0f), velocity(0.0f), width(0.0f), height(0.0f), pos(0.0f)  {}
-};
-
-extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam); // ÇÔ¼ö´Â ¼±¾ğ ½Ã ÀÚµ¿À¸·Î externÀÌ ºÙÀ½(¾ÈºÙ¿©µµµÈ´Ù´Â ¶æ) / »ç¿ëÀÚ Á¤ÀÇ ÇÔ¼ö¿©¼­ ¸í½ÃÀûÀ¸·Î ¾îµğ¿¡ ÀÖ´ÂÁö ¾Ë¾Æ¾ßÇÔ -> extern »ç¿ë (<->scanf´Â ÀÌ¹Ì ÄÄÆÄÀÏµÈ ¶óÀÌºê·¯¸® O)
-
-struct AABB {
-	float xMin, yMin;
-	float xMax, yMax;
-};
-static inline int IsCollision(UObject& sphere, UObject& paddle, float sphereRadius)
+#pragma region URenderer
+class URenderer
 {
-	// ºÎµúÈú ¹æÇâÀ¸·Î ¿Ã ¶§¸¸ ¹æÇâÀ» ¹Ù²ãÁÖµµ·Ï ÇÔ(º®¿¡ Æ¨±â°í ÆĞµé ºÎµúÈ÷´Â °æ¿ì Á¦¿Ü)
-	bool bDirection = (sphere.velocity.x * paddle.pos.x > 0);
-	float dx = std::fabs(sphere.offset.x - (paddle.pos.x + paddle.offset.x));
-	float dy = std::fabs(sphere.offset.y - (paddle.pos.y + paddle.offset.y));
+public:
+	// Direct3D 11 ì¥ì¹˜(Device)ì™€ ì¥ì¹˜ ì»¨í…ìŠ¤íŠ¸(Device Context) ë° ìŠ¤ì™‘ì²´ì¸(Swap chain)ì„ ê´€ë¦¬í•˜ê¸° ìœ„í•œ í¬ì¸í„°ë“¤
+	ID3D11Device* Device = nullptr;	// GPUì™€ í†µì‹ í•˜ê¸° ìœ„í•œ D3D ì¥ì¹˜ (ê¸°ëŠ¥ ì§€ì› ì ê²€ê³¼ ìì› í• ë‹¹)
+	ID3D11DeviceContext* DeviceContext = nullptr; // GPU ëª…ë ¹ ì‹¤í–‰ì„ ë‹´ë‹¹í•˜ëŠ” ì»¨í…ìŠ¤íŠ¸ (GPUê°€ ìˆ˜í–‰í•  ë Œë”ë§ ëª…ë ¹.. ì„¤ì •ê³¼ ìì›ì„ íŒŒì´í”„ë¼ì¸ì— ë¬¶ê¸°ë„ í•¨)
+	IDXGISwapChain* SwapChain = nullptr;		  // í”„ë ˆì„ ë²„í¼ë¥¼ êµì²´í•˜ëŠ” ë° ì‚¬ìš©ë˜ëŠ” ìŠ¤ì™‘ ì²´ì¸ (I:Interface)
 
-	if (bDirection && dx <= (sphereRadius + paddle.width / 2.0f) && dy <= (sphereRadius + paddle.height / 2.0f)) {
+	// ë Œë”ë§ì— í•„ìš”í•œ ë¦¬ì†ŒìŠ¤ ë° ìƒíƒœë¥¼ ê´€ë¦¬í•˜ê¸° ìœ„í•œ ë³€ìˆ˜ë“¤
+	ID3D11Texture2D* FrameBuffer = nullptr; // í™”ë©´ ì¶œë ¥ìš© í…ìŠ¤ì²˜
+	ID3D11RenderTargetView* FrameBufferRTV = nullptr; // í…ìŠ¤ì²˜ë¥¼ ë Œë” íƒ€ê²Ÿìœ¼ë¡œ ì‚¬ìš©í•˜ëŠ” ìì› ë·°(í…ìŠ¤ì²˜ë¥¼ ë Œë”ë§ ì¶œë ¥ìœ¼ë¡œ ë°›ìœ¼ë ¤ ì—°ê²°í•˜ë ¤ë©´ ìì›ë·°ê°€ í•„ìš”, R)
+	ID3D11RasterizerState* RasterizerState = nullptr;  // ë˜ìŠ¤í„°ë¼ì´ì € ìƒíƒœ(ì»¬ë§, ì±„ìš°ê¸° ëª¨ë“œ ë“± ì •ì˜)
+
+
+	FLOAT ClearColor[4] = { 0.025f, 0.025f, 0.025f, 1.0f }; // í™”ë©´ì„ ì´ˆê¸°í™”(clear)í•  ë•Œ ì‚¬ìš©í•  ìƒ‰ìƒ (RGBA)
+	D3D11_VIEWPORT ViewportInfo; //ë Œë”ë§ ì˜ì—­ì„ ì •ì˜í•˜ëŠ” ë·°í¬íŠ¸ ì •ë³´
+
+	// ì…°ì´ë” ì½”ë“œ ì¶”ê°€
+	ID3D11VertexShader* SimpleVertexShader;
+	ID3D11PixelShader* SimplePixelShader;
+	ID3D11InputLayout* SimpleInputLayout;
+	unsigned int Stride;
+
+	// ìƒìˆ˜ ë²„í¼
+	struct FConstants {
+		FVector3 Offset;
+		float Radius;
+	};
+
+	ID3D11Buffer* ConstantBuffer = nullptr; // ì…°ì´ë”ì— ë°ì´í„°ë¥¼ ì „ë‹¬í•˜ê¸° ìœ„í•œ ìƒìˆ˜ ë²„í¼ (ê³µìš©, ë§¤ í”„ë ˆì„ ìƒìˆ˜ ë²„í¼ ê°’ì„ ë°”ê¿”ê°€ë©° ì¶œë ¥)
+
+	struct FInstances { // ê°™ì€ ë²„í…ìŠ¤ ë²„í¼ë¥¼ ê³µìœ í•˜ë©´ì„œ, ì¸ìŠ¤í„´ìŠ¤ ë³„ë¡œ ë‹¬ë¦¬í•  ìë£Œë“¤
+		FVector3 Offset;
+		float Radius;
+	};
+	ID3D11Buffer* InstanceBuffer = nullptr;
+
+public:
+	// ë Œë”ëŸ¬ ì´ˆê¸°í™” í•¨ìˆ˜
+	void Create(HWND hWindow)
+	{
+		CreateDeviceAndSwapChain(hWindow);	// Direct3D ì¥ì¹˜ ë° ìŠ¤ì™‘ì²´ì¸ 
+		CreateFrameBuffer();				// í”„ë ˆì„ ë²„í¼ ìƒì„±
+		CreateRasterizerState();			// ë˜ìŠ¤í„°ë¼ì´ì € ìƒíƒœ ìƒì„±
+		// ê¹Šì´ ìŠ¤í…ì‹¤ ë²„í¼ ë° ë¸”ë Œë“œ ìƒíƒœëŠ” ì´ ì½”ë“œì—ì„œ ë‹¤ë£¨ì§€ ì•ŠìŒ
+	}
+
+	// Direct3D ì¥ì¹˜ ë° ìŠ¤ì™‘ ì²´ì¸ì„ ìƒì„±í•˜ëŠ” í•¨ìˆ˜
+	void CreateDeviceAndSwapChain(HWND hWindow)
+	{
+		// ì§€ì›í•˜ëŠ” Direct3D ê¸°ëŠ¥ ë ˆë²¨ì„ ì •ì˜
+		D3D_FEATURE_LEVEL featurelevels[] = { D3D_FEATURE_LEVEL_11_0 };
+
+		// ìŠ¤ì™‘ ì²´ì¸ ì„¤ì • êµ¬ì¡°ì²´ ì´ˆê¸°í™”
+		DXGI_SWAP_CHAIN_DESC swapchaindesc = {};
+		swapchaindesc.BufferDesc.Width = 0;								// ì°½ í¬ê¸°ì— ë§ê²Œ ìë™ìœ¼ë¡œ ì„¤ì •
+		swapchaindesc.BufferDesc.Height = 0;							// ì°½ í¬ê¸°ì— ë§ê²Œ ìë™ìœ¼ë¡œ ì„¤ì •
+		swapchaindesc.BufferDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;	// ìƒ‰ìƒ í¬ë§· | í…ìŠ¤ì²˜ì—ëŠ” DXGI ì—´ê²¨í˜• ì •ì˜ëœ ìë£Œí˜•ì‹ë§Œ ë‹´ì„ ìˆ˜ ìˆìŒ
+		swapchaindesc.SampleDesc.Count = 1;								// ë©€í‹° ìƒ˜í”Œë§ ë¹„í™œì„±í™”
+		swapchaindesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;	// ë Œë” íƒ€ê²Ÿìœ¼ë¡œ ì‚¬ìš©
+		swapchaindesc.BufferCount = 2;									// ë”ë¸” ë²„í¼ë§
+		swapchaindesc.OutputWindow = hWindow;							// ë Œë”ë§í•  ì°½ í•¸ë“¤
+		swapchaindesc.Windowed = TRUE;									// ì°½ëª¨ë“œ
+		swapchaindesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;		// ìŠ¤ì™‘ ë°©ì‹
+
+		// Direct3D ì¥ì¹˜ì™€ ìŠ¤ì™‘ ì²´ì¸ì„ ìƒì„±
+		D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
+			D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_DEBUG,
+			featurelevels, ARRAYSIZE(featurelevels), D3D11_SDK_VERSION,
+			&swapchaindesc, &SwapChain, &Device, nullptr, &DeviceContext);
+
+		// ìƒì„±ëœ ìŠ¤ì™‘ ì²´ì¸ì˜ ì •ë³´ ê°€ì ¸ì˜¤ê¸° 
+		SwapChain->GetDesc(&swapchaindesc);
+
+		// ë·°í¬íŠ¸ ì •ë³´ ì„¤ì •
+		ViewportInfo = { 0.0f, 0.0f, (float)swapchaindesc.BufferDesc.Width, (float)swapchaindesc.BufferDesc.Height, 0.0f, 1.0f };
+	}
+	// Direct3D ì¥ì¹˜ ë° ìŠ¤ì™‘ ì²´ì¸ì„ í•´ì œí•˜ëŠ” í•¨ìˆ˜
+	void ReleaseDeviceAndSwapChain()
+	{
+		if (DeviceContext) {
+			DeviceContext->Flush(); // ë‚¨ì•„ìˆëŠ” GPU ëª…ë ¹ ì‹¤í–‰
+		}
+
+		SAFE_RELEASE(SwapChain);
+		SAFE_RELEASE(Device);
+		SAFE_RELEASE(DeviceContext);
+	}
+
+	// ìŠ¤ì™‘ì²´ì¸ í¬ê¸° ë³€ê²½ (ì°½ì´ ë” ì»¤ì§ˆ ë•Œ pixelì´ ëŠ˜ì–´ë‚˜ë³´ì´ëŠ” í˜„ìƒ ë°©ì§€)
+	void ResizeSwapChain(int nxtWidth, int nxtHeight)
+	{
+		if (SwapChain) {
+			// [1] Swapchainê³¼ ê´€ë ¨í•œ Resource í•´ì œ (pre-resize) : ê¸°ì¡´ ë°±ë²„í¼ì¸ FrameBuffer, RTV .. (DepthStencilViewë„ í•´ì•¼ í•¨)
+			SAFE_RELEASE(FrameBuffer);
+			SAFE_RELEASE(FrameBufferRTV);
+
+			// [2] SwapChain í¬ê¸° ì¡°ì • (ì²«ë²ˆì§¸ ì¸ì 0ì´ë©´ ê¸°ì¡´ ìŠ¤ì™‘ì²´ì¸ ë²„í¼ ìˆ˜ ìœ ì§€)
+			SwapChain->ResizeBuffers(0, nxtWidth, nxtHeight, DXGI_FORMAT_UNKNOWN, 0);
+
+			// [3] ìƒˆë¡œìš´ ë Œë” íƒ€ê²Ÿ ë·° ìƒì„± / í¬ê¸°ì— ë§ê²Œ viewport í¬ê¸° ì¡°ì • (post-resize)
+			CreateFrameBuffer();
+			ViewportInfo.Width = nxtWidth;
+			ViewportInfo.Height = nxtHeight;
+		}
+	}
+
+	// [2] [í”„ë ˆì„ ë²„í¼ë¥¼ ìƒì„±í•˜ëŠ” í•¨ìˆ˜] : Swapchain ìƒì„±í›„ í…ìŠ¤ì²˜ë¥¼ ì–»ê³ , ë Œë”ë§ìš©ìœ¼ë¡œ íŒŒì´í”„ë¼ì¸ì— ë¬¶ëŠ”ë‹¤
+	void CreateFrameBuffer()
+	{
+		// ìŠ¤ì™‘ ì²´ì¸ìœ¼ë¡œë¶€í„° ë°± ë²„í¼ í…ìŠ¤ì²˜ ê°€ì ¸ì˜¤ê¸° (ì§€ì •ëœ ì¸ë±ìŠ¤ 0)  | í…ìŠ¤ì²˜ë¥¼ ì‚¬ìš©í•˜ë ¤ë©´ í…ìŠ¤ì²˜ ì¸í„°í˜ì´ìŠ¤ë¥¼ ì–»ì–´ì™€ì•¼ í•¨
+		// ì´ ë•Œ FrameBufferëŠ” ë Œë”ë§ëœ ì´ë¯¸ì§€ë¥¼ ì €ì¥í•˜ëŠ” ë°ì— ì‚¬ìš©
+		SwapChain->GetBuffer(0, IID_PPV_ARGS(&FrameBuffer)); // í™•ì¥ : [__uuidof(ID3D11Texture2D), (void**)&FrameBuffer], IUnknown ìƒì† ì²´í¬í•´ì¤Œ
+
+		// ë Œë” íƒ€ê²Ÿ ë·° ìƒì„±
+		D3D11_RENDER_TARGET_VIEW_DESC framebufferRTVdesc = {};
+		framebufferRTVdesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; // ìƒ‰ìƒ í¬ë§·
+		framebufferRTVdesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D; // 2D í…ìŠ¤ì²˜ë¥¼ ë Œë” íƒ€ê²Ÿìœ¼ë¡œ ì„¤ì •
+
+		Device->CreateRenderTargetView(FrameBuffer, &framebufferRTVdesc, &FrameBufferRTV); // FrameBufferë¥¼ RTVë¡œ ì„¤ì • | FrameBufferê°€ 0ì¼ìˆ˜ìˆë‹¤ ì—ëŸ¬:GetBufferí˜¸ì¶œ ì‹¤íŒ¨í–ˆê±°ë‚˜, FBê°€ nullptrì¼ë•Œ
+	}
+
+	// í”„ë ˆì„ ë²„í¼ë¥¼ í•´ì œí•˜ëŠ” í•¨ìˆ˜
+	void ReleaseFrameBuffer()
+	{
+		SAFE_RELEASE(FrameBuffer);
+		SAFE_RELEASE(FrameBufferRTV);
+	}
+
+	// ë˜ìŠ¤í„°ë¼ì´ì € ìƒíƒœë¥¼ ìƒì„±í•˜ëŠ” í•¨ìˆ˜
+	void CreateRasterizerState()
+	{
+		D3D11_RASTERIZER_DESC rasterizerdesc = {};
+		rasterizerdesc.FillMode = D3D11_FILL_SOLID; // ë‹¨ìƒ‰ ì±„ìš°ê¸° ëª¨ë“œ
+		rasterizerdesc.CullMode = D3D11_CULL_BACK;	// ë°± í˜ì´ìŠ¤ ì»¬ë§:ë’¤ìª½ ë©´ì„ ê·¸ë¦¬ì§€ ì•Šë„ë¡
+
+		Device->CreateRasterizerState(&rasterizerdesc, &RasterizerState); // ìƒì„±ëœ ë˜ìŠ¤í„°ë¼ì´ì € ìƒíƒœë¥¼ Device*ì— ì ìš©
+	}
+
+	// ë˜ìŠ¤í„°ë¼ì´ì € ìƒíƒœë¥¼ í•´ì œí•˜ëŠ” í•¨ìˆ˜
+	void ReleaseRasterizerState()
+	{
+		SAFE_RELEASE(RasterizerState);
+	}
+
+	// ë Œë”ëŸ¬ì— ì‚¬ìš©ëœ ëª¨ë“  ë¦¬ì†ŒìŠ¤ë¥¼ í•´ì œí•˜ëŠ” í•¨ìˆ˜
+	void Release()
+	{
+		RasterizerState->Release();
+
+		// ë Œë” íƒ€ê²Ÿì„ ì´ˆê¸°í™”
+		DeviceContext->OMSetRenderTargets(0, nullptr, nullptr); // ì°¸ê³ ) Deffered Contextì—ì„  OMS ì•ˆì¨ë„ ë¬¸ì œì—†ì´ ì—¬ëŸ¬ê°œ RTVì— ê·¸ë¦¼
+
+		ReleaseFrameBuffer();
+		ReleaseDeviceAndSwapChain();
+	}
+
+	// ìŠ¤ì™‘ ì²´ì¸ì˜ ë°± ë²„í¼ì™€ í”„ë¡ íŠ¸ ë²„í¼ë¥¼ êµì²´í•˜ì—¬ í™”ë©´ì— ì¶œë ¥
+	void SwapBuffer()
+	{
+		SwapChain->Present(1, 0); // 1 : VSync í™œì„±í™” | í›„ë©´ê³¼ ì „ë©´ ë²„í¼ë¥¼ êµí™˜í•˜ì—¬ í™”ë©´ í‘œì‹œí•˜ëŠ” ê²ƒ(=Present ì œì‹œ)
+	}
+
+	void CreateShader()
+	{
+		ID3DBlob* vertexShaderCSO;
+		ID3DBlob* pixelShaderCSO;
+
+		D3DCompileFromFile(L"ShaderW0.hlsl", nullptr, nullptr, "mainVS", "vs_5_0", 0, 0, &vertexShaderCSO, nullptr);					// ë§ˆì§€ë§‰ ì¸ì : ì»´íŒŒì¼ ì‹¤íŒ¨ì‹œ Blob ê°ì²´ ë¬¸ìì—´ì— ì˜¤ë¥˜ ë©”ì‹œì§€ ì €ì¥
+		Device->CreateVertexShader(vertexShaderCSO->GetBufferPointer(), vertexShaderCSO->GetBufferSize(), nullptr, &SimpleVertexShader);
+		D3DCompileFromFile(L"ShaderW0.hlsl", nullptr, nullptr, "mainPS", "ps_5_0", 0, 0, &pixelShaderCSO, nullptr);
+		Device->CreatePixelShader(pixelShaderCSO->GetBufferPointer(), pixelShaderCSO->GetBufferSize(), nullptr, &SimplePixelShader);
+
+		D3D11_INPUT_ELEMENT_DESC layout[] = {
+			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D11_INPUT_PER_VERTEX_DATA, 0},
+			{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
+		};
+
+		Device->CreateInputLayout(layout, ARRAYSIZE(layout), vertexShaderCSO->GetBufferPointer(), vertexShaderCSO->GetBufferSize(), &SimpleInputLayout);
+
+		Stride = sizeof(FVertexSimple);
+	}
+
+	void ReleaseShader()
+	{
+		// ReleaseëŠ” ì½”ë“œ ì—­ìˆœìœ¼ë¡œ  í˜¸ì¶œ
+		SAFE_RELEASE(SimpleInputLayout);
+		SAFE_RELEASE(SimplePixelShader);
+		SAFE_RELEASE(SimpleVertexShader);
+	}
+
+	void Prepare()
+	{
+		DeviceContext->ClearRenderTargetView(FrameBufferRTV, ClearColor);
+
+		DeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+		DeviceContext->RSSetViewports(1, &ViewportInfo); // ì´ ë©”ì„œë“œë¡œ ì„¤ì •ë˜ì§€ ì•Šì€ ë·°í¬íŠ¸ë“¤ì€ ìë™ìœ¼ë¡œ í•´ì œë¨
+		DeviceContext->RSSetState(RasterizerState);
+
+		DeviceContext->OMSetRenderTargets(1, &FrameBufferRTV, nullptr); // ë°± ë²„í¼ì— í•´ë‹¹í•˜ëŠ” RTVë¥¼ ìƒì„±í•˜ê³  ë¬¶ì–´ì•¼í•¨ (ì¶œë ¥ë³‘í•©ê¸°)
+		DeviceContext->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+
+	}
+
+	void PrepareShader()
+	{
+		DeviceContext->VSSetShader(SimpleVertexShader, nullptr, 0);
+		DeviceContext->PSSetShader(SimplePixelShader, nullptr, 0);
+		DeviceContext->IASetInputLayout(SimpleInputLayout);
+
+		// ë²„í…ìŠ¤ ì…°ì´ë”ì˜ ìƒìˆ˜ ë²„í¼ ì„¤ì •
+		if (ConstantBuffer) {
+			DeviceContext->VSSetConstantBuffers(0, 1, &ConstantBuffer);
+		}
+	}
+
+	void RenderPrimitive(ID3D11Buffer* pBuffer, UINT numVertices)
+	{
+		UINT offset = 0;
+		DeviceContext->IASetVertexBuffers(0, 1, &pBuffer, &Stride, &offset);
+		DeviceContext->Draw(numVertices, 0);
+	}
+
+	ID3D11Buffer* CreateVertexBuffer(FVertexSimple* vertices, UINT byteWidth)
+	{
+		// 2. Create a vertex buffer
+		D3D11_BUFFER_DESC vertexbufferdesc = {};
+		vertexbufferdesc.ByteWidth = byteWidth;
+		vertexbufferdesc.Usage = D3D11_USAGE_IMMUTABLE;			// will never be updated
+		vertexbufferdesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+
+		D3D11_SUBRESOURCE_DATA vertexBufferSRD = { vertices };
+		ID3D11Buffer* vertexBuffer;
+
+		Device->CreateBuffer(&vertexbufferdesc, &vertexBufferSRD, &vertexBuffer);
+
+		return vertexBuffer;
+	}
+
+	void ReleaseVertexBuffer(ID3D11Buffer* vertexBuffer)
+	{
+		vertexBuffer->Release();
+	}
+
+	// ë³´í†µ ë³€í•˜ì§€ ì•ŠëŠ” ê°’(CPUì—ì„œ GPUë¡œ ë³´ë‚´ê¸° ìœ„í•´)ì„ ì €ì¥í•  ìƒìˆ˜ë²„í¼ ìƒì„± (D3Dì—ì„  16ë°”ì´íŠ¸ ë°°ìˆ˜ í¬ê¸° ê·œì•½)
+	void CreateConstantBuffer()
+	{
+		D3D11_BUFFER_DESC constantbufferdesc = {};
+		constantbufferdesc.ByteWidth = sizeof(FConstants) + 0xf & 0xfffffff0; // ensure constant buffer	size is multiple of 16 bytes (ìµœì†Œ 16ë°”ì´íŠ¸ ì´ìƒ & 0xfffffff0 = ê°€ì¥ ê°€ê¹ê³  í° 16ì˜ ë°°ìˆ˜)
+		constantbufferdesc.Usage = D3D11_USAGE_DYNAMIC; // will be updated from CPU frame (ë§¤ ë¬¼ì²´ë§ˆë‹¤ ë™ì ìœ¼ë¡œ ê°±ì‹  ê°€ëŠ¥)
+		constantbufferdesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		constantbufferdesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+
+		Device->CreateBuffer(&constantbufferdesc, nullptr, &ConstantBuffer);
+	}
+
+	void ReleaseConstantBuffer()
+	{
+		SAFE_RELEASE(ConstantBuffer);
+	}
+
+	// GPUì™€ ë¬¶ì¸ ConstantBufferë¥¼ ì„ì‹œë¡œ MSRë¡œ ê°€ì ¸ì™€ ìˆ˜ì •í•˜ê³ , ë‹¤ì‹œ ë–¼ì–´ë‚´ì–´ GPUì— ë„ë¡œ ë¬¶ìŒ
+	void UpdateConstant(FVector3 Offset, float radius)
+	{
+		if (ConstantBuffer) {
+			D3D11_MAPPED_SUBRESOURCE constantbufferMSR;			// CPUì ‘ê·¼ ê°€ëŠ¥í•˜ë„ë¡ ìƒìˆ˜ë²„í¼ë¥¼ ì„ì‹œë¡œ ê°€ì ¸ì˜¬ ë²„í¼
+
+			DeviceContext->Map(ConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &constantbufferMSR); // ë§¤í”„ë ˆì„ ìƒìˆ˜ ë²„í¼ ì—…ë°ì´íŠ¸ (ë§µí•‘ì‹œ CPUê°€ ë°ì´í„° ìˆ˜ì • ê°€ëŠ¥)
+			FConstants* constants = (FConstants*)constantbufferMSR.pData; { // ë§µí•‘ëœ ë²„í¼ì˜ ì‹œìŠ¤í…œ ë©”ëª¨ë¦¬ ì£¼ì†Œ ê°€ì ¸ì˜´ | í•´ë‹¹ ì‹œìŠ¤í…œ ë©”ëª¨ë¦¬ë¥¼ ìˆ˜ì • ê°€ëŠ¥
+				constants->Offset = Offset;
+				constants->Radius = radius;
+			}
+			DeviceContext->Unmap(ConstantBuffer, 0);		// ë¦¬ì†ŒìŠ¤ë¥¼ GPUì™€ì˜ ì •ìƒì ì¸ ìƒíƒœë¡œ ë˜ëŒë¦¼ (GPUê°€ ì´ì œ ì½ê¸° ê°€ëŠ¥)
+		}
+	}
+
+	void CreateInstanceBuffer()
+	{
+		D3D11_BUFFER_DESC instancebufferdesc = {};
+		instancebufferdesc.ByteWidth = sizeof(FInstances) + 0xf & 0xfffffff0; // ensure constant buffer	size is multiple of 16 bytes (ìµœì†Œ 16ë°”ì´íŠ¸ ì´ìƒ & 0xfffffff0 = ê°€ì¥ ê°€ê¹ê³  í° 16ì˜ ë°°ìˆ˜)
+		instancebufferdesc.Usage = D3D11_USAGE_DYNAMIC; // will be updated from CPU frame (ë§¤ ë¬¼ì²´ë§ˆë‹¤ ë™ì ìœ¼ë¡œ ê°±ì‹  ê°€ëŠ¥)
+		instancebufferdesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		instancebufferdesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+
+		Device->CreateBuffer(&instancebufferdesc, nullptr, &InstanceBuffer);
+	}
+};
+
+#pragma endregion
+
+enum class Border {
+	Right = 1,
+	Left = -1,
+	Top = -1,
+	Bottom = 1,
+};
+
+class UBall {
+public:
+	// í´ë˜ìŠ¤ ì´ë¦„ê³¼, ì•„ë˜ ë‘ê°œì˜ ë³€ìˆ˜ ì´ë¦„ì€ ë³€ê²½í•˜ì§€ ì•ŠìŠµë‹ˆë‹¤.
+	FVector3 Location;
+	FVector3 Velocity;
+	float Radius;
+	float Mass;
+
+	// Sphereê°€ ê³µí†µìœ¼ë¡œ ì‚¬ìš©í•  ë²„í…ìŠ¤ ë²„í¼ , ë²„í…ìŠ¤ ê°œìˆ˜, ì¤‘ë ¥ì†ë„
+	static ID3D11Buffer* pVertexBuffer;
+	static const UINT numVertices = sizeof(sphere_vertices) / sizeof(FVertexSimple);
+	static const float gravitySpeed;
+	FVector3 AngularVelocity;
+	int Polarity;																		// N, S ê·¹ì„±
+	
+
+	// ë‘ ë¬¼ì²´ê°„ ë§Œìœ  ì¸ë ¥ ì²˜ë¦¬
+	void ResolveGravityBall(UBall*& other, float deltaTime)
+	{
+		static constexpr float G = 6.67384e-11f;
+
+		auto& m1 = Mass; auto& m2 = other->Mass;
+		const float massSum = m1 + m2;
+		const float combinedRadii = Radius + other->Radius;
+
+		FVector3& x1 = Location; auto& x2 = other->Location;
+		FVector3& v1 = Velocity; auto& v2 = other->Velocity;
+
+		const FVector3 dX = x1 - x2;
+		const float r = sqrt(dX.dot(dX));
+		const float F = G * (m1 * m2) / (r * r);
+		const FVector3 dir = (dX) / (r * r);
+
+		const FVector3 fDir = dir * F;
+		
+		// ê°ê°ì˜ ê°€ì†ë„ë§Œí¼, ì„œë¡œ ëŒì–´ë‹¹ê¸°ëŠ” ë°©í–¥ìœ¼ë¡œ ì†ë„ ê°±ì‹ 
+		v1 = v1 - (fDir / m1) * deltaTime;
+		v2 = v2 + (fDir / m2) * deltaTime;
+	}
+
+	// ë‘ ë¬¼ì²´ê°„ ì¶©ëŒ ì²˜ë¦¬ (ë¹„íƒ„ì„± / íƒ„ì„±)
+	void ResolveCollisionBall(UBall*& other, bool bInElastic, float e)
+	{
+		constexpr float epsilon = 1e-4f;
+		auto& m1 = Mass; auto& m2 = other->Mass;
+		const float massSum = m1 + m2;
+		const float combinedRadii = Radius + other->Radius;
+
+		FVector3& x1 = Location; auto& x2 = other->Location;
+		FVector3& v1 = Velocity; auto& v2 = other->Velocity;
+		FVector3& av1 = AngularVelocity; auto& av2 = other->AngularVelocity;
+
+		const FVector3 dX = x1 - x2;
+		const FVector3 dV = v1 - v2;
+
+		float norm = dX.dot(dX); float dist = sqrt(norm);
+		if (norm < epsilon) return;
+
+		// êµ¬ë¼ë¦¬ ë­‰ì³ìˆëŠ” ê²½ìš° ë³´ì • - ê° êµ¬ë¼ë¦¬ ë¶™ì–´ìˆëŠ” ë§Œí¼ ì¤‘ì ì—ì„œ ì„œë¡œ ë°€ì–´ë‚´ë„ë¡
+		if (norm < combinedRadii * combinedRadii) {
+			float overlap = (combinedRadii - dist) * 0.5f;
+			FVector3 correction = dX * overlap;								
+			x1 = x1 + correction;
+			x2 = x2 - correction;
+		}
+
+		if (bInElastic) { // ë¹„íƒ„ì„± ì¶©ëŒ ì˜µì…˜ : ì¶©ëŒ í›„ ìƒëŒ€ ì†ë„ì˜ í¬ê¸°ê°€ ì¶©ëŒ ì „ë³´ë‹¤ ì‘ì•„ì§
+			v1 = v1 + dX * ( ((-1 - e) * m2) / massSum) * (dV.dot(dX) / norm);
+			v2 = v2 - dX * ( ((-1 - e) * m1) / massSum) * (dV.dot(dX) / norm);
+		} else { // íƒ„ì„± ì¶©ëŒ ì „í›„ : ì „ì²´ ìš´ë™ ì—ë„ˆì§€ê°€ ë³´ì¡´, ìƒëŒ€ ì†ë„ í¬ê¸°ê°€ ê°™ìŒ
+			v1 = v1 - dX * ((2 * m2) / massSum) * (dV.dot(dX) / norm);
+			v2 = v2 + dX * ((2 * m1) / massSum) * (dV.dot(dX) / norm);
+		}
+
+		// í† í¬ -> íšŒì „ íš¨ê³¼
+		float impulseMagnitude = -2 * dV.dot((dX / dist)) / (1 / m1 + 1 / m2);
+		FVector3 impulse = dX / dist * impulseMagnitude;
+
+		// ì¶©ê²©ëŸ‰ ë°˜ì˜
+		//v1 = v1 + impulse / m1;
+		//v2 = v2 - impulse / m2;
+
+		// íšŒì „ íš¨ê³¼ ì ìš© (í† í¬ ê¸°ë°˜)
+		FVector3 contactPoint = dX / dist * -Radius;  // ì¶©ëŒ ì§€ì 
+		FVector3 t1 = contactPoint.cross(impulse); // Ï„ = r Ã— F
+		contactPoint = contactPoint * -1.0f;
+		FVector3 t2 = contactPoint.cross(impulse);
+
+
+		float I1 = (2.0f / 5.0f) * m1 * Radius * Radius; // I = (2/5) * m * rÂ²
+		float I2 = (2.0f / 5.0f) * m2 * other->Radius * other->Radius;
+
+		av1 = av1 + t1 / I1; // ê°ì†ë„ ê°±ì‹ 
+		av2 = av2 + t2 / I2;
+	}
+
+	void BoundToScreen() noexcept
+	{
+		// ë²½ì— ì¶©ëŒ ì‹œ ë°˜ëŒ€ ë°©í–¥ìœ¼ë¡œ ì‘ìš©
+		if (Location.x >= static_cast<float>(Border::Right) - Radius || Location.x <= static_cast<float>(Border::Left) + Radius) {
+			Velocity.x *= -1.0f;
+		} else if (Location.y >= static_cast<float>(Border::Bottom) - Radius || Location.y <= static_cast<float>(Border::Top) + Radius) {
+			Velocity.y *= -1.0f;
+		}
+	}
+
+	void DoRender(URenderer& renderer) const
+	{
+		renderer.UpdateConstant(this->Location, this->Radius);
+		renderer.DeviceContext->VSSetConstantBuffers(0, 1, &renderer.ConstantBuffer);
+		renderer.RenderPrimitive(pVertexBuffer, numVertices);
+	}
+	void Rotate(float deltaTime)
+	{
+		FVector3 rotationAxis = FVector3(0.0f);
+		rotationAxis.normalize();
+		float angle = AngularVelocity.length() * deltaTime;
+		if (angle > 1e-5f) {
+			Location = Location.rotateAround(rotationAxis, angle);
+		}
+	}
+
+	void Move(float deltaTime)
+	{
+		Location.x += Velocity.x * deltaTime;
+		Location.y += Velocity.y * deltaTime;
+		Location.z += Velocity.z * deltaTime;
+		Rotate(deltaTime);
+	}
+
+	
+
+	void Update(bool& bGravity, float deltaTime)
+	{
+		if (bGravity) {
+			Velocity.y -= gravitySpeed * deltaTime;
+		} 
+					
+		Move(deltaTime);
+		BoundToScreen();
+
+		// Bound to Screen
+		Location.x = std::clamp(Location.x, static_cast<float>(Border::Left) + Radius, static_cast<float>(Border::Right) - Radius); // ê³ ë¯¼í•´ë³¼ ì§€ì  : ì„±ëŠ¥ ì°¨ì´?
+		Location.y = std::clamp(Location.y, static_cast<float>(Border::Top) + Radius, static_cast<float>(Border::Bottom) - Radius);
+	}
+	
+	UBall() : Location(0.0f), Velocity(0.0f), Radius((float)(rand() % 3 + 1) * 0.04f), Mass(3.0f*Radius), AngularVelocity(0.0f), Polarity(rand()%RAND_MAX < 0.5f ? -1 : 1)
+	{
+		Location.x = static_cast <float> (rand()) / static_cast <float> (RAND_MAX) * 2 - 1;						// [-1, 1]
+		Location.y = static_cast <float> (rand()) / static_cast <float> (RAND_MAX) - Radius - 0.25f;			// [ìµœì†Œ í™”ë©´ ì¤‘ê°„ ë†’ì´, ë§¨ ìœ„]
+		Velocity.x = 0.00001f;																					// ë¯¸ì„¸í•˜ê²Œ ê³µì´ êµ¬ë¥´ë„ë¡
+		Velocity.x *= (static_cast <float> (rand()) / static_cast <float> (RAND_MAX)) < 0.5f ? 1.0f : -1.0f;
+	}
+};
+ID3D11Buffer* UBall::pVertexBuffer = nullptr;
+const float UBall::gravitySpeed = 0.000006f;
+
+extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam); // í•¨ìˆ˜ëŠ” ì„ ì–¸ ì‹œ ìë™ìœ¼ë¡œ externì´ ë¶™ìŒ(ì•ˆë¶™ì—¬ë„ëœë‹¤ëŠ” ëœ») / ì‚¬ìš©ì ì •ì˜ í•¨ìˆ˜ì—¬ì„œ ëª…ì‹œì ìœ¼ë¡œ ì–´ë””ì— ìˆëŠ”ì§€ ì•Œì•„ì•¼í•¨ -> extern ì‚¬ìš© (<->scanfëŠ” ì´ë¯¸ ì»´íŒŒì¼ëœ ë¼ì´ë¸ŒëŸ¬ë¦¬ O)
+
+static inline int IsCollisionBall(UBall*& ball1, UBall*& ball2)
+{
+	const FVector3 dX = ball1->Location - ball2->Location;
+	const float dist = dX.dot(dX);
+	const float combinedRadii= ball1->Radius + ball2->Radius;
+	const float epsilon = 1e-6f;
+
+	if (dist + epsilon <= combinedRadii * combinedRadii) {
 		return true;
 	}
 	return false;
 }
-// °¢Á¾ ¸Ş½ÃÁö¸¦ Ã³¸®ÇÒ ÇÔ¼ö
+// ê°ì¢… ë©”ì‹œì§€ë¥¼ ì²˜ë¦¬í•  í•¨ìˆ˜
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	if (ImGui_ImplWin32_WndProcHandler(hWnd, message, wParam, lParam)) {
@@ -154,102 +568,67 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
-	// À©µµ¿ì Å¬·¡½º ÀÌ¸§
+#pragma region WindowInit
+	// ìœˆë„ìš° í´ë˜ìŠ¤ ì´ë¦„
 	WCHAR WindowClass[] = L"JungleWindowClass";
 
-	// À©µµ¿ì Å¸ÀÌÆ²¹Ù¿¡ Ç¥½ÃµÉ ÀÌ¸§
+	// ìœˆë„ìš° íƒ€ì´í‹€ë°”ì— í‘œì‹œë  ì´ë¦„
 	WCHAR Title[] = L"Game Tech Lab";
 
-	// °¢Á¾ ¸Ş½ÃÁö¸¦ Ã³¸®ÇÒ ÇÔ¼öÀÎ WndProcÀÇ ÇÔ¼ö Æ÷ÀÎÅÍ¸¦ WindowClass ±¸Á¶Ã¼¿¡ ³Ö´Â´Ù
+	// ê°ì¢… ë©”ì‹œì§€ë¥¼ ì²˜ë¦¬í•  í•¨ìˆ˜ì¸ WndProcì˜ í•¨ìˆ˜ í¬ì¸í„°ë¥¼ WindowClass êµ¬ì¡°ì²´ì— ë„£ëŠ”ë‹¤
 	WNDCLASS wndclass = { 0, WndProc, 0,0,0,0,0,0,0, WindowClass };
 
-	// À©µµ¿ì Å¬·¡½º µî·Ï
+	// ìœˆë„ìš° í´ë˜ìŠ¤ ë“±ë¡
 	RegisterClassW(&wndclass);
 
-	FVector2 wndSize = { 600, 600 };
+	FVector2 wndSize = { 800, 800 };
 	float aspectRatio = wndSize.x / wndSize.y;
-	// 1024 x 1024 Å©±â¿¡ À©µµ¿ì »ı¼º
+	// 1024 x 1024 í¬ê¸°ì— ìœˆë„ìš° ìƒì„±
 	HWND hWnd = CreateWindowExW(0, WindowClass, Title, WS_POPUP | WS_VISIBLE | WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, CW_USEDEFAULT, wndSize.x, wndSize.y,
 		nullptr, nullptr, hInstance, nullptr);
+#pragma endregion
 
-	// Renderer Class¸¦ »ı¼º
+	// Renderer Classë¥¼ ìƒì„±
 	URenderer renderer;
 
-	renderer.Create(hWnd);   // D3D11 »ı¼ºÇÏ´Â ÇÔ¼ö¸¦ È£Ãâ
-	renderer.CreateShader(); // ·»´õ·¯ »ı¼º Á÷ÈÄ ¼ÎÀÌ´õ »ı¼º
-	renderer.CreateConstantBuffer(); // »ó¼ö ¹öÆÛ »ı¼º
+	renderer.Create(hWnd);   // D3D11 ìƒì„±í•˜ëŠ” í•¨ìˆ˜ë¥¼ í˜¸ì¶œ
+	renderer.CreateShader(); // ë Œë”ëŸ¬ ìƒì„± ì§í›„ ì…°ì´ë” ìƒì„±
+	renderer.CreateConstantBuffer(); // ìƒìˆ˜ ë²„í¼ ìƒì„±
 
-	// ImGui »ı¼º ¹× ÃÊ±âÈ­ ÇÔ¼ö È£Ãâ
+	// ImGui ìƒì„± ë° ì´ˆê¸°í™” í•¨ìˆ˜ í˜¸ì¶œ
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
 	ImGui_ImplWin32_Init((void*)hWnd);
 	ImGui_ImplDX11_Init(renderer.Device, renderer.DeviceContext);
 
-	// ·»´õ·¯,¼ÎÀÌ´õ »ı¼º ÈÄ VertexBuffer »ı¼º	
-	// [º¹½À] (numvertices´Â ´Ù¸¥ ±¸Á¶Ã¼¸¦ °¡Áú ¶§ ÄÚµå°¡ º¯°æµÇ´Âµ¥, ÀÌ¸¦ ¸ÅÅ©·Î·Î ÀÚµ¿À¸·Î Ãß°¡ÇÒ ¹æ¹ı + ¼ÒÀ¯±Ç ´©±¸ÇÑÅ× Áà¾ß Àû´çÇÒÁö
-	UINT numVerticesTriangle = sizeof(triangle_vertices) / sizeof(FVertexSimple);
-	UINT numVerticesCube = sizeof(cube_vertices) / sizeof(FVertexSimple);
-	UINT numVerticesSphere = sizeof(sphere_vertices) / sizeof(FVertexSimple);
-	UINT numVerticesPlayer1 = sizeof(player1_vertices) / sizeof(FVertexSimple);
-	UINT numVerticesPlayer2 = sizeof(player2_vertices) / sizeof(FVertexSimple);
-
-	std::unique_ptr<FVertexSimple[]> nxtsphere_vertices{ new FVertexSimple[numVerticesSphere] }; // ÇØ»óµµ¿¡ µû¶ó º¯°æµÉ ±¸ Á¤Á¡ ÀúÀåÇÒ ¹è¿­
-
-	// Vertex Buffer·Î ³Ñ±â±â Àü¿¡ Scale DownÇÔ
-	float scaleMod = 0.1f;
-	for (UINT i = 0; i < numVerticesSphere; ++i) {
-		sphere_vertices[i].x *= scaleMod;
-		sphere_vertices[i].y *= scaleMod;
-		sphere_vertices[i].z *= scaleMod;
-	}
-	std::copy(sphere_vertices, sphere_vertices+numVerticesSphere, nxtsphere_vertices.get());
-
-	ID3D11Buffer* vertexBufferTriangle = renderer.CreateVertexBuffer(triangle_vertices, sizeof(triangle_vertices));
-	ID3D11Buffer* vertexBufferCube = renderer.CreateVertexBuffer(cube_vertices, sizeof(cube_vertices));
-	// °ø1°³, ÆĞµé 2°³ Á¤ÀÇ
-	ID3D11Buffer* vertexBufferSphere = renderer.CreateVertexBuffer(sphere_vertices, sizeof(sphere_vertices));
-	ID3D11Buffer* vertexBufferPlayer1 = renderer.CreateVertexBuffer(player1_vertices, sizeof(player1_vertices));
-	ID3D11Buffer* vertexBufferPlayer2 = renderer.CreateVertexBuffer(player2_vertices, sizeof(player2_vertices));
-
-	enum ETypePrimitive {
-		EPT_Triangle,
-		EPT_Cube,
-		EPT_Sphere,
-		EPT_Max,
-	};
-
-	ETypePrimitive typePrimitive = EPT_Sphere;
+	// ë Œë”ëŸ¬,ì…°ì´ë” ìƒì„± í›„ VertexBuffer ìƒì„±	
+	FVertexSimple* nxtsphere_vertices{ new FVertexSimple[UBall::numVertices] }; // í•´ìƒë„ì— ë”°ë¼ ë³€ê²½ë  êµ¬ ì •ì  ì €ì¥í•  ë°°ì—´
+	std::copy(sphere_vertices, sphere_vertices + UBall::numVertices, nxtsphere_vertices);
+	float tmp = UBall::numVertices;
 	
-	UINT numObjects = 3;
-	UObject* objects = new UObject[numObjects];
-	ID3D11Buffer* vertexbuffers[3] = { vertexBufferSphere, vertexBufferPlayer1, vertexBufferPlayer2 };
-	UINT numVertices[3] = { numVerticesSphere , numVerticesPlayer1, numVerticesPlayer2 };
-	objects[0].vertices = sphere_vertices; objects[1].vertices = player1_vertices; objects[2].vertices = player2_vertices;
-	objects[1].width = objects[2].width = 0.05f;	// Paddle width
-	objects[1].height = objects[2].height = 0.2f;	// Paddle height
-	objects[1].pos.x = -0.925f;
-	objects[2].pos.x = 0.925f;
+	UINT numBalls = 1;
+	UBall** BallList = new UBall*[numBalls];
 
-	const float leftBorder = -1.0f;
-	const float rightBorder = 1.0f;
-	const float topBorder = -1.0f;
-	const float bottomBorder = 1.0f;
-	const float sphereRadius = 1.0f;
+	/* ImGui ê´€ë ¨ ë³€ìˆ˜ */
+	bool bGravity = false;			// ì¤‘ë ¥ ë‚™í•˜ ì—¬ë¶€
+	int inputNumBalls = 1;			// êµ¬ ìƒì„± ê°œìˆ˜
+	bool bInElastic = false;		// ë¹„íƒ„ì„± ì¶©ëŒ ì—¬ë¶€
+	float coeffRestitution = 0.5f;	// ë¹„íƒ„ì„± ì¶©ëŒ ì‹œ ë°˜ë°œ ê³„ìˆ˜
+	bool bUniversalGravity = false;
+	
+	/* ì…í•™ ì‹œí—˜ : êµ¬ ìƒì„± ê´€ë ¨ ë²„í…ìŠ¤ ë²„í¼, ì´ì¤‘ í¬ì¸í„° */
+	UBall* sphere = new UBall;
+	ID3D11Buffer* vertexBufferSphere = renderer.CreateVertexBuffer(sphere_vertices, sizeof(sphere_vertices));
+	UBall::pVertexBuffer = vertexBufferSphere;
+	BallList[0] = sphere;
 
-	bool bBoundBallToScreen = true;
-	bool bBoundPaddleToScreen = true;
-	bool bPinballMovement = true;
+	const int targetFPS = 60;							// ì´ˆë‹¹ ìµœëŒ€ 30ë²ˆ ê°±ì‹  (targetFPSë¥¼ ë†’ì¼ìˆ˜ë¡, ê³µì˜ ì†ë„ê°€ ë¹¨ë¼ì§„ë‹¤)
+	const double targetFrameTime = 1000.0f / targetFPS; // í•œ í”„ë ˆì„ì˜ ëª©í‘œ ì‹œê°„ (ë°€ë¦¬ì´ˆ ë‹¨ìœ„)
+	const float deltaTime = 1000.0f / targetFPS;
 
-	const float ballSpeed = 0.001f;
-	objects[0].velocity.y = ((float)(rand() % 100 - 50)) * ballSpeed;
-	objects[0].velocity.x = ((float)(rand() % 100 - 50)) * ballSpeed;
-
-	const int targetFPS = 30;							// ÃÊ´ç ÃÖ´ë 30¹ø °»½Å (targetFPS¸¦ ³ôÀÏ¼ö·Ï, ballSpeedµµ »¡¶óÁø´Ù)
-	const double targetFrameTime = 1000.0f / targetFPS; // ÇÑ ÇÁ·¹ÀÓÀÇ ¸ñÇ¥ ½Ã°£ (¹Ğ¸®ÃÊ ´ÜÀ§)
-
-	// °í¼º´É Å¸ÀÌ¸Ó ÃÊ±âÈ­
+	// ê³ ì„±ëŠ¥ íƒ€ì´ë¨¸ ì´ˆê¸°í™”
 	LARGE_INTEGER frequency;
 	QueryPerformanceFrequency(&frequency);
 
@@ -258,179 +637,197 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	bool bIsExit = false;
 
-	// Main Loop (Quit Message°¡ µé¾î¿À±â Àü±îÁö ¾Æ·¡ Loop¸¦ ¹«ÇÑÈ÷ ½ÇÇàÇÏ°Ô µÊ)
+	// Main Loop (Quit Messageê°€ ë“¤ì–´ì˜¤ê¸° ì „ê¹Œì§€ ì•„ë˜ Loopë¥¼ ë¬´í•œíˆ ì‹¤í–‰í•˜ê²Œ ë¨)
 	while (bIsExit == false) {
 		QueryPerformanceCounter(&startTime);
 		MSG msg;
 
-		// Ã³¸®ÇÒ ¸Ş½ÃÁö°¡ ´õ ÀÌ»ó ¾øÀ» ¶§±îÁö ¼öÇà
+		// ì²˜ë¦¬í•  ë©”ì‹œì§€ê°€ ë” ì´ìƒ ì—†ì„ ë•Œê¹Œì§€ ìˆ˜í–‰
 		while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
-			// Å° ÀÔ·Â ¸Ş½ÃÁö¸¦ ¹ø¿ª
+			// í‚¤ ì…ë ¥ ë©”ì‹œì§€ë¥¼ ë²ˆì—­
 			TranslateMessage(&msg);
 
-			// ¸Ş½ÃÁö¸¦ ÀûÀıÇÑ À©µµ¿ì ÇÁ·Î½ÃÀú¿¡ Àü´Ş, ¸Ş½ÃÁö°¡ À§¿¡¼­ µî·ÏÇÑ WndProc·Î Àü´ŞµÊ
+			// ë©”ì‹œì§€ë¥¼ ì ì ˆí•œ ìœˆë„ìš° í”„ë¡œì‹œì €ì— ì „ë‹¬, ë©”ì‹œì§€ê°€ ìœ„ì—ì„œ ë“±ë¡í•œ WndProcë¡œ ì „ë‹¬ë¨
 			DispatchMessage(&msg);
 
 			if (msg.message == WM_QUIT) {
 				bIsExit = true;
 				break;
-			} else if (msg.message == WM_KEYDOWN) { // Á¶°ÇÀÌ ¸¹À»¼ö·Ï Á¡ÇÁ Å×ÀÌºí »ı¼ºÇÏ¿© ¼º´É ÃÖÀûÈ­ ÇÏ´Â switch-case°¡ À¯¸® (°¡±ŞÀû ¼øÂ÷ÀûÀÎ °¨¼Ò/Áõ°¡ ¼øÀ¸·Î)
-				if (!bPinballMovement) {
-					switch (msg.wParam) {
-					case VK_LEFT:	objects[0].offset.x -= 0.1f; break;
-					case VK_UP:		objects[0].offset.y += 0.1f; break;
-					case VK_RIGHT:	objects[0].offset.x += 0.1f; break;
-					case VK_DOWN:	objects[0].offset.y -= 0.1f; break;
-					}
+			} else if (msg.message == WM_KEYDOWN) { // ì¡°ê±´ì´ ë§ì„ìˆ˜ë¡ ì í”„ í…Œì´ë¸” ìƒì„±í•˜ì—¬ ì„±ëŠ¥ ìµœì í™” í•˜ëŠ” switch-caseê°€ ìœ ë¦¬ (ê°€ê¸‰ì  ìˆœì°¨ì ì¸ ê°ì†Œ/ì¦ê°€ ìˆœìœ¼ë¡œ)
+				switch (msg.wParam) {
+				case VK_LEFT:	BallList[0]->Location.x -= 0.1f; break;
+				case VK_UP:		BallList[0]->Location.y += 0.1f; break;
+				case VK_RIGHT:	BallList[0]->Location.x += 0.1f; break;
+				case VK_DOWN:	BallList[0]->Location.y -= 0.1f; break;
+				}				
+				// ë””ë²„ê¹…ìš© : 1, 2ë²ˆì§¸ ê³µ ì›€ì§ì´ê¸°
+				if (GetAsyncKeyState(0x57) & 0x8000) { // W í‚¤ : 1ë²ˆì§¸ ê³µ ìƒ 
+					BallList[1]->Location.y += 0.1f;
 				}
-				if (GetAsyncKeyState(0x57) & 0x8000) { // W Å° : Player1 »ó
-					objects[1].offset.y += 0.1f;
+				if (GetAsyncKeyState(0x53) & 0x8000) { // S í‚¤ : 1ë²ˆì§¸ ê³µ í•˜
+					BallList[1]->Location.y -= 0.1f;
 				}
-				if (GetAsyncKeyState(0x53) & 0x8000) { // S Å° : Player1 ÇÏ
-					objects[1].offset.y -= 0.1f;
+				if (GetAsyncKeyState(0x49) & 0x8000) { // I í‚¤ : 2ë²ˆì¨° ê³µ ìƒ
+					BallList[2]->Location.y += 0.1f;
 				}
-				if (GetAsyncKeyState(0x49) & 0x8000) { // I Å° : Player2 »ó
-					objects[2].offset.y += 0.1f;
-				}
-				if (GetAsyncKeyState(0x4A) & 0x8000) { // J Å° : Player2 ÇÏ
-					objects[2].offset.y -= 0.1f;
+				if (GetAsyncKeyState(0x4A) & 0x8000) { // J í‚¤ : 2ë²ˆì§¸ ê³µ í•˜
+					BallList[2]->Location.y -= 0.1f;
 				}
 			} 
 		}
-		// Å°º¸µå Ã³¸® Á÷ÈÄ È­¸é ¹ÛÀ» ¹ş¾î³µ´Ù¸é È­¸é ¾ÈÂÊÀ¸·Î ÀçÀ§Ä¡½ÃÅ²´Ù. (È­¸é ¹ş¾î³ªÁö ¾Ê´Â ¿É¼ÇÀÌ¶ó¸é)
-		if (bBoundBallToScreen) {
-			float renderRadius = sphereRadius * scaleMod;
-			auto& offset = objects[0].offset;
-			renderRadius *= (aspectRatio > 1.0f) ?  (1.0f / (aspectRatio)) : aspectRatio;			// Ã¢Å©±â¿¡ µû¸¥ ¿Ö°î º¸Á¤
-			offset.x = std::clamp(offset.x, leftBorder + renderRadius, rightBorder - renderRadius);
-			offset.y = std::clamp(offset.y, topBorder + renderRadius, bottomBorder - renderRadius);
+			
+		////////////////////////////////////////////
+		// ë§¤ë²ˆ ì‹¤í–‰ë˜ëŠ” ì½”ë“œë¥¼ ì—¬ê¸°ì— ì¶”ê°€
+		
+		// [1] ë Œë”ëŸ¬ ì¤€ë¹„ ì‘ì—…
+		renderer.Prepare();
+		renderer.PrepareShader();
+		
+#pragma region Ball_Render_Update
+		/* Ballë“¤ì„ ê°±ì‹ , ë Œë”, ì¶©ëŒ ì²˜ë¦¬ */
+		for (UINT i{ 0 }; i < numBalls; ++i) {
+			UBall*& pBall = BallList[i];
+			pBall->Update(bGravity, deltaTime);
+			pBall->DoRender(renderer);
 		}
-		if (bBoundPaddleToScreen) {
-			for (size_t i = 1; i < 3; ++i) {
-				auto& offset = objects[i].offset;
-				FVector2 renderRadius = { objects[i].width/2.0f, objects[i].height/2.0f };
-				offset.x = std::clamp(offset.x, leftBorder + renderRadius.x, rightBorder -  renderRadius.x);
-				offset.y = std::clamp(offset.y, topBorder +  renderRadius.y, bottomBorder - renderRadius.y);
-			}
-		}
-		if (bPinballMovement) {
-			// ¼Óµµ¸¦ °øÀ§Ä¡¿¡ ´õÇØ °øÀ» ½ÇÁúÀûÀ¸·Î ¿òÁ÷ÀÓ
-			UObject& sphere = objects[0];
-			auto& offset = sphere.offset;
-			auto& velocity = sphere.velocity;
-			offset.x += velocity.x;
-			offset.y += velocity.y;
-			offset.z += velocity.z;
-
-			// º®°ú Ãæµ¹ ¿©ºÎ¸¦ Ã¼Å©ÇÏ°í Ãæµ¹½Ã ¼Óµµ¿¡ À½¼ö¸¦ °öÇØ ¹æÇâÀ» ¹Ù²Ş
-			float renderRadius = sphereRadius * scaleMod;
-			if (offset.x < leftBorder + renderRadius) {
-				velocity.x *= -1.0f;
-			}
-			if (offset.x > rightBorder - renderRadius) {
-				velocity.x *= -1.0f;
-			}
-			if (offset.y < topBorder + renderRadius) {
-				velocity.y *= -1.0f;
-			}
-			if (offset.y > bottomBorder - renderRadius) {
-				velocity.y *= -1.0f;
-			}
-
-			for (size_t i = 1; i < 3; ++i) {
-				UObject& paddle = objects[i];
-				if (IsCollision(sphere, paddle, renderRadius)) {
-					sphere.velocity.x *= -1.0f;
+		for (UINT i{ 0 }; i < numBalls - 1; ++i) {
+			UBall*& pBall1 = BallList[i];
+			for (UINT j {i+1}; j < numBalls; ++j) {
+				UBall*& pBall2 = BallList[j];
+				if (IsCollisionBall(pBall1, pBall2)) {
+					pBall1->ResolveCollisionBall(pBall2, bInElastic, coeffRestitution);
+				}
+				if (bUniversalGravity) {
+					pBall1->ResolveGravityBall(pBall2, deltaTime);
 				}
 			}
 		}
-		////////////////////////////////////////////
-		// ¸Å¹ø ½ÇÇàµÇ´Â ÄÚµå¸¦ ¿©±â¿¡ Ãß°¡
-		
-		// [1] ·»´õ·¯ ÁØºñ ÀÛ¾÷
-		renderer.Prepare();
-		renderer.PrepareShader();
+#pragma endregion 
 
-		for (size_t i = 0; i < numObjects; ++i) {
-			auto& object = objects[i];
-			renderer.UpdateConstant(object.offset);
-			renderer.DeviceContext->VSSetConstantBuffers(0, 1, &renderer.ConstantBuffer);
-			renderer.RenderPrimitive(vertexbuffers[i], numVertices[i]);
-		}
-
-		// [2] ImGui ·»´õ¸µ ÁØºñ, ÄÁÆ®·Ñ ¼³Á¤, ·»´õ¸µ ¿äÃ»
+#pragma region ImGui
+		// [2] ImGui ë Œë”ë§ ì¤€ë¹„, ì»¨íŠ¸ë¡¤ ì„¤ì •, ë Œë”ë§ ìš”ì²­
 		ImGui_ImplDX11_NewFrame();
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
 
-		// [2] ÀÌÈÄ ImGui UI ÄÁÆ®·Ñ Ãß°¡´Â ImGui::NewFrame()°ú Render() »çÀÌÀÎ ¿©±â¿¡ À§Ä¡ÇÕ´Ï´Ù
+		// [2] ì´í›„ ImGui UI ì»¨íŠ¸ë¡¤ ì¶”ê°€ëŠ” ImGui::NewFrame()ê³¼ Render() ì‚¬ì´ì— ìœ„ì¹˜
 		ImGui::Begin("Jungle Property Window");
-		ImGui::Text("Hello Jungle world!");
-		ImGui::Checkbox("Bound Ball to Screen", &bBoundBallToScreen);
-		ImGui::Checkbox("Bound Paddle to Screen", &bBoundPaddleToScreen);
-		ImGui::Checkbox("Pinball Movement", &bPinballMovement);
-		ImGui::InputFloat2("Change Window Size", &wndSize.x, "%.0f");
+		ImGui::Text("Hello Jungle Contest!");
+		ImGui::Checkbox("Gravity", &bGravity);
+		if (ImGui::InputInt("Number of Balls", &inputNumBalls, 1, 1, 0)) {
+			if (inputNumBalls < 1) inputNumBalls = 1;
+			int nxtSize = (numBalls < inputNumBalls) ? inputNumBalls : numBalls;
+			UBall** nxtBallList = nullptr;
 
+			// ë¹„êµì  ëœë¤ ì‚­ì œ costê°€ ì‘ìœ¼ë¯€ë¡œ ë°°ì—´ ì‚¬ìš©
+			if (numBalls < inputNumBalls) {			// í˜„ì¬ ê³µë³´ë‹¤ ì…ë ¥ ê°œìˆ˜ í´ ê²½ìš° ìƒì„± ë° ë™ì  í• ë‹¹
+				nxtBallList = new UBall* [nxtSize];
+				memcpy(nxtBallList, BallList, sizeof(UBall*) * numBalls);
+				for (UINT i{ numBalls }; i < inputNumBalls; ++i) {
+					nxtBallList[i] = new UBall;
+				}
+				delete[] BallList;
+				BallList = nxtBallList;
+				numBalls = inputNumBalls;
+			} 
+			else if (numBalls > inputNumBalls) {	// í˜„ì¬ ê³µë³´ë‹¤ ì…ë ¥ ê°œìˆ˜ ì‘ì„ ê²½ìš° ëœë¤ ì‚­ì œ, ê°œìˆ˜ê°€ ê°™ì„ ê²½ìš° ì‚­ì œí•˜ì§€ ì•ŠëŠ”ë‹¤.
+				nxtBallList = new UBall*[nxtSize];
+				int deleteCnt = numBalls - inputNumBalls;
+				while (deleteCnt) {
+					int i = rand() % numBalls;
+					if (BallList[i] == nullptr) continue;
+					
+					delete BallList[i];
+					BallList[i] = nullptr;
+					--deleteCnt;
+				}
+				UINT idx = 0;
+				for (UINT i{ 0 }; i < numBalls; ++i) {
+					if (BallList[i] == nullptr) continue;
+					nxtBallList[idx++] = BallList[i];
+				}
+				delete[] BallList;
+				BallList = nxtBallList;
+				numBalls = inputNumBalls;
+			}
+			
+		}
+		
+		// ë¹„íƒ„ì„± ì¶©ëŒ ì˜µì…˜ (ë°˜ë°œ ê³„ìˆ˜ì™€ ê·¸ë£¹)
+		ImGui::Checkbox("InElastic Collision?", &bInElastic); 
+		if (bInElastic) {
+			ImGui::BeginGroup();
+			ImGui::SliderFloat("COR e", &coeffRestitution, 0.0f, 1.0f, "%.3f");
+			ImGui::EndGroup();
+		}
+		ImGui::Checkbox("Universal Gravity", &bUniversalGravity); // ë§Œìœ ì¸ë ¥ ì¤‘ë ¥ ì˜µì…˜
+
+		// ìœˆë„ìš° í¬ê¸° ë³€ê²½ (ì˜¤ë¥˜, TODO)
+		ImGui::InputFloat2("Change Window Size", &wndSize.x, "%.0f");
 		if (ImGui::Button("Apply size Change")) {
-			// À©µµ¿ì Å©±â º¯°æ
 			RECT rect = { 0, 0, static_cast<LONG>(wndSize.x), static_cast<LONG>(wndSize.y) };
 			AdjustWindowRect(&rect, WS_POPUP | WS_VISIBLE | WS_OVERLAPPEDWINDOW, FALSE);
 			SetWindowPos(hWnd, NULL, CW_USEDEFAULT, CW_USEDEFAULT, (int)wndSize.x, (int)wndSize.y, SWP_NOMOVE | SWP_NOZORDER);
-
 			renderer.ResizeSwapChain(static_cast<int>(wndSize.x), static_cast<int>(wndSize.y));
 
-			// ImGui Ãæµ¹¹üÀ§µµ º¯°æ À§ÇØ µğ½ºÇÃ·¹ÀÌ Å©±â¿Í ÇÁ·¹ÀÓ¹öÆÛ Å©±â ¼³Á¤ / ImGui ¼Ò¸ê
+			// ImGui ì¶©ëŒë²”ìœ„ë„ ë³€ê²½ ìœ„í•´ ë””ìŠ¤í”Œë ˆì´ í¬ê¸°ì™€ í”„ë ˆì„ë²„í¼ í¬ê¸° ì„¤ì • / ImGui ì†Œë©¸
 			ImGui_ImplDX11_Shutdown();
 			ImGui_ImplWin32_Shutdown();
 			ImGui::DestroyContext();
-
-			// »õ·Î¿î ÄÁÅØ½ºÆ® »ı¼º, »õ·Î¿î hWnd·Î ÃÊ±âÈ­
+			
+			// ìƒˆë¡œìš´ ì»¨í…ìŠ¤íŠ¸ ìƒì„±, ìƒˆë¡œìš´ hWndë¡œ ì´ˆê¸°í™”
 			ImGui::CreateContext();
 			ImGui_ImplWin32_Init((void*)hWnd);
 			ImGui_ImplDX11_Init(renderer.Device, renderer.DeviceContext);
-
-			SAFE_RELEASE(vertexBufferSphere);
 			
 			aspectRatio = wndSize.x / wndSize.y;
-			for (UINT i = 0; i < numVerticesSphere; ++i) {
+
+			// í•´ìƒë„ ë³€ê²½ì— ë”°ë¥¸ êµ¬ ì°Œê·¸ëŸ¬ì§ í•´ê²° 			
+			for (UINT i{ 0 }; i < UBall::numVertices; ++i) {
 				nxtsphere_vertices[i].x = (aspectRatio > 1.0f) ? sphere_vertices[i].x / aspectRatio : sphere_vertices[i].x;
 				nxtsphere_vertices[i].y = (aspectRatio < 1.0f) ? sphere_vertices[i].y * aspectRatio : sphere_vertices[i].y;
 			}
-			vertexBufferSphere = renderer.CreateVertexBuffer(nxtsphere_vertices.get(), sizeof(sphere_vertices));
-			vertexbuffers[0] = vertexBufferSphere;
+			ID3D11Buffer* nxtVertexBufferSphere = renderer.CreateVertexBuffer(nxtsphere_vertices, UBall::numVertices);
+			UBall::pVertexBuffer = nxtVertexBufferSphere;
+			SAFE_RELEASE(vertexBufferSphere);
+			vertexBufferSphere = nxtVertexBufferSphere;
 		} else {
 			ImGui::End();
 			ImGui::Render();
-			ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData()); // ·»´õ¸µ ¿äÃ»
+			ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData()); // ë Œë”ë§ ìš”ì²­
 		}
-		// [3] ÇöÀç È­¸é¿¡ º¸¿©Áö´Â ¹öÆÛ¿Í ±×¸®±â ÀÛ¾÷À» À§ÇÑ ¹öÆÛ¸¦ ¼­·Î ±³È¯
+		
+#pragma endregion 
+		// [3] í˜„ì¬ í™”ë©´ì— ë³´ì—¬ì§€ëŠ” ë²„í¼ì™€ ê·¸ë¦¬ê¸° ì‘ì—…ì„ ìœ„í•œ ë²„í¼ë¥¼ ì„œë¡œ êµí™˜
 		renderer.SwapBuffer();
-
 		do {
 			Sleep(0);
 
 			QueryPerformanceCounter(&endTime);
 
-			// ÇÑ ÇÁ·¹ÀÓÀÌ ¼Ò¿äµÈ ½Ã°£ °è»ê (¹Ğ¸®ÃÊ ´ÜÀ§·Î º¯È¯) = (Å¬·° ÁÖ±â Â÷ÀÌ) * 1000.0f / ÃÊ´ç Å¬·° È½¼ö = c * 1000.0f / (c/s) = (ms)
-			elapsedTime = (endTime.QuadPart - startTime.QuadPart) * 1000.0f / frequency.QuadPart; // .QuadPart(°ø¿ëÃ¼ÀÇ 64ºñÆ® Á¤¼ö ¸â¹öº¯¼ö)
+			// í•œ í”„ë ˆì„ì´ ì†Œìš”ëœ ì‹œê°„ ê³„ì‚° (ë°€ë¦¬ì´ˆ ë‹¨ìœ„ë¡œ ë³€í™˜) = (í´ëŸ­ ì£¼ê¸° ì°¨ì´) * 1000.0f / ì´ˆë‹¹ í´ëŸ­ íšŸìˆ˜ = c * 1000.0f / (c/s) = (ms)
+			elapsedTime = (endTime.QuadPart - startTime.QuadPart) * 1000.0f / frequency.QuadPart; // .QuadPart(ê³µìš©ì²´ì˜ 64ë¹„íŠ¸ ì •ìˆ˜ ë©¤ë²„ë³€ìˆ˜)
 		} while (elapsedTime < targetFrameTime);
 		
 	}
 
-	delete[] objects;
-	// ImGui ¼Ò¸ê
+#pragma region Release
+	for (UINT i{ 0 }; i < numBalls; ++i) {
+		delete BallList[i]; BallList[i] = nullptr;
+	}
+	delete[] BallList; BallList = nullptr;
+	delete nxtsphere_vertices; nxtsphere_vertices = nullptr;
+	// ImGui ì†Œë©¸
 	ImGui_ImplDX11_Shutdown();
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
 
-	// COM ¿ÀºêÁ§Æ®´Â Release·Î¸¸ °¢°¢ ¼Ò¸ê °¡´É (delete X)
-	renderer.ReleaseVertexBuffer(vertexBufferTriangle);	// ¹öÅØ½º ¹öÆÛ ¼Ò¸êÀº ·»´õ·¯ ¼Ò¸ê Àü¿¡ Ã³¸®
-	renderer.ReleaseVertexBuffer(vertexBufferCube);
+	// COM ì˜¤ë¸Œì íŠ¸ëŠ” Releaseë¡œë§Œ ê°ê° ì†Œë©¸ ê°€ëŠ¥ (delete ë¶ˆê°€ëŠ¥)
 	renderer.ReleaseVertexBuffer(vertexBufferSphere);
-
 	renderer.ReleaseConstantBuffer();
-	renderer.ReleaseShader();   // ·»´õ·¯ ¼Ò¸ê Á÷Àü ¼ÎÀÌ´õ¸¦ ¼Ò¸ê½ÃÅ°´Â ÇÔ¼ö È£Ãâ
-	renderer.Release();			// D3D11 ¼Ò¸ê½ÃÅ°´Â ÇÔ¼ö¸¦ È£ÃâÇÕ´Ï´Ù.
+	renderer.ReleaseShader();   // ë Œë”ëŸ¬ ì†Œë©¸ ì§ì „ ì…°ì´ë”ë¥¼ ì†Œë©¸ì‹œí‚¤ëŠ” í•¨ìˆ˜ í˜¸ì¶œ
+	renderer.Release();			// D3D11 ì†Œë©¸ì‹œí‚¤ëŠ” í•¨ìˆ˜ë¥¼ í˜¸ì¶œí•©ë‹ˆë‹¤.
+#pragma endregion
 
 	return 1;  
 }

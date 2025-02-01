@@ -246,7 +246,7 @@ public:
 		UINT offset = 0;
 		auto& pBuffer = m_VertexBuffers[i];
 		DeviceContext->IASetVertexBuffers(0, 1, &pBuffer, &Stride, &offset);
-		DeviceContext->Draw(m_numVertices[i], 0);
+		DeviceContext->Draw(m_numVertices[i], 0);	
 	}
 
 	ID3D11Buffer* CreateVertexBuffer(FVertexSimple* vertices, UINT byteWidth)

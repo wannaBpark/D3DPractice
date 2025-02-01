@@ -140,18 +140,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
-{
-	// 윈도우 클래스 이름
-	WCHAR WindowClass[] = L"JungleWindowClass";
-
-	// 윈도우 타이틀바에 표시될 이름
-	WCHAR Title[] = L"Game Tech Lab";
-
-	// 각종 메시지를 처리할 함수인 WndProc의 함수 포인터를 WindowClass 구조체에 넣는다
-	WNDCLASS wndclass = { 0, WndProc, 0,0,0,0,0,0,0, WindowClass };
-
-	// 윈도우 클래스 등록
-	RegisterClassW(&wndclass);
+{	
+	WCHAR WindowClass[] = L"JungleWindowClass";						// 윈도우 클래스 이름	
+	WCHAR Title[] = L"Game Tech Lab";								// 윈도우 타이틀바에 표시될 이름
+	WNDCLASS wndclass = { 0, WndProc, 0,0,0,0,0,0,0, WindowClass }; // 각종 메시지를 처리할 함수인 WndProc의 함수 포인터를 WindowClass 구조체에 넣는다
+	RegisterClassW(&wndclass);										// 윈도우 클래스 등록
 
 	FVector2 wndSize = { 600, 600 };
 	float aspectRatio = wndSize.x / wndSize.y;
@@ -160,12 +153,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		CW_USEDEFAULT, CW_USEDEFAULT, wndSize.x, wndSize.y,
 		nullptr, nullptr, hInstance, nullptr);
 
-	// Renderer Class를 생성
-	URenderer renderer;
-
-	renderer.Create(hWnd);   // D3D11 생성하는 함수를 호출
-	renderer.CreateShader(); // 렌더러 생성 직후 셰이더 생성
-	renderer.CreateConstantBuffer(); // 상수 버퍼 생성
+	srand(time(NULL));					// 랜덤 시드 갱신
+	
+	URenderer renderer;					// Renderer Class를 생성
+	renderer.Create(hWnd);				// D3D11 생성하는 함수를 호출
+	renderer.CreateShader();			// 렌더러 생성 직후 셰이더 생성
+	renderer.CreateConstantBuffer();	// 상수 버퍼 생성
 
 	// ImGui 생성 및 초기화 함수 호출
 	IMGUI_CHECKVERSION();

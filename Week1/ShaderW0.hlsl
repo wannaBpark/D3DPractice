@@ -2,7 +2,7 @@
 cbuffer constants : register(b0)
 {
     float3 Offset;
-    float Pad;
+    float Radius;
 }
 
 struct VS_INPUT
@@ -22,6 +22,7 @@ PS_INPUT mainVS(VS_INPUT input)
 {
     PS_INPUT output;
     
+    input.position.xy *= Radius;
     // 상수 버퍼를 통해 넘겨 받은 Offset을 더해 버텍스를 이동
     output.position = float4(Offset, 0) + input.position;
     
